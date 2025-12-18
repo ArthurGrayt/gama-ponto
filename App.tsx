@@ -107,12 +107,13 @@ const App: React.FC = () => {
   }, [session, currentView, historyType, historyDate, historyFilterType]);
 
   useEffect(() => {
-    if (session?.user.id && currentView === 'profile' && reportPeriod !== 'today') {
+    if (session?.user.id) {
+      // Always fetch profile to get username for Dashboard/Header
       getUserProfile(session.user.id).then(setUserProfile);
-      getReportData(session.user.id, reportPeriod as ReportPeriod).then(setReportData);
-    } else if (session?.user.id && currentView === 'profile' && reportPeriod === 'today') {
-      getUserProfile(session.user.id).then(setUserProfile);
-      // We don't need getReportData for 'today', we use workedTime
+
+      if (currentView === 'profile' && reportPeriod !== 'today') {
+        getReportData(session.user.id, reportPeriod as ReportPeriod).then(setReportData);
+      }
     }
   }, [session, currentView, reportPeriod]);
 
@@ -340,7 +341,7 @@ const App: React.FC = () => {
             <div className="space-y-2">
               <h2 className="text-2xl font-bold text-gray-900">Bom descanso!</h2>
               <p className="text-gray-600">
-                Até mais, <span className="font-semibold text-gray-900">{session?.user.email?.split('@')[0]}</span>!
+                Até mais, <span className="font-semibold text-gray-900">{userProfile?.username || userProfile?.name || session?.user.email?.split('@')[0]}</span>!
               </p>
             </div>
 
@@ -366,7 +367,7 @@ const App: React.FC = () => {
             <GamaLogo className="w-32 h-32 drop-shadow-sm" />
 
             <div className="text-center space-y-1">
-              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Olá, {session?.user.email?.split('@')[0]}</h1>
+              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Olá, {userProfile?.username || userProfile?.name || session?.user.email?.split('@')[0]}</h1>
               <p className="text-gray-500 font-medium text-lg">
                 {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
@@ -512,7 +513,7 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-            <h2 className="text-xl font-bold text-gray-800">{userProfile?.name || session?.user.email}</h2>
+            <h2 className="text-xl font-bold text-gray-800">{userProfile?.username || userProfile?.name || session?.user.email}</h2>
           </div>
 
           {/* Stats Section */}

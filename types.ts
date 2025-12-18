@@ -21,6 +21,7 @@ export interface PontoRegistro {
 export interface User {
   id: string;
   name: string;
+  username?: string;
   codeHash: string;
   img_url?: string;
 }

@@ -182,7 +182,8 @@ export const getUserProfile = async (userId: string): Promise<User | null> => {
   const raw = data as any;
   return {
     id: raw.id,
-    name: raw.name || raw.nome || raw.full_name || raw.username || "Usuário",
+    name: raw.name || raw.nome || raw.full_name || "Usuário",
+    username: raw.username,
     codeHash: raw.codeHash || "",
     img_url: raw.img_url
   };
