@@ -13,7 +13,7 @@ interface TokenState {
     attempts: number;
 }
 
-export const useTokenSystem = (distance: number | null) => {
+export const useTokenSystem = () => {
     const [token, setToken] = useState<string | null>(null);
     const [expiresAt, setExpiresAt] = useState<number | null>(null);
     const [isLocked, setIsLocked] = useState(false);
@@ -31,12 +31,9 @@ export const useTokenSystem = (distance: number | null) => {
 
     // Timer & Regeneration Logic
     useEffect(() => {
-        // Check constraints
-        if (distance === null || distance > MAX_DISTANCE_KM) {
-            setToken(null);
-            setExpiresAt(null);
-            return;
-        }
+        // Removed distance check to ensure token is always generated. 
+        // Usage validation is handled in the UI/App logic.
+
 
         const now = Date.now();
 
@@ -73,7 +70,7 @@ export const useTokenSystem = (distance: number | null) => {
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [distance, expiresAt, generateToken]);
+    }, [expiresAt, generateToken]);
 
     const verifyToken = (input: string): boolean => {
         if (isLocked) return false;

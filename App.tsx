@@ -147,7 +147,7 @@ const App: React.FC = () => {
   const [finalDailyHours, setFinalDailyHours] = useState("");
 
   // Custom Hook
-  const { token, timeLeft, totalDuration, isLocked, attempts, verifyToken } = useTokenSystem(distance);
+  const { token, timeLeft, totalDuration, isLocked, attempts, verifyToken } = useTokenSystem();
 
   // Load initial data
   useEffect(() => {
@@ -165,34 +165,56 @@ const App: React.FC = () => {
     };
 
     fetchRecords();
+  }, [session]);
 
-    // Watch Location
-    if ('geolocation' in navigator) {
-      const watchId = navigator.geolocation.watchPosition(
+  // Separate Effect for Location
+  useEffect(() => {
+    if (!session?.user.id) return;
+
+    let mounted = true;
+
+    const fetchLocation = () => {
+      if (!('geolocation' in navigator)) {
+        setError("Geolocalização não suportada.");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
         (pos) => {
+          if (!mounted) return;
           const newLoc = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude
           };
           setLocation(newLoc);
-
-          // Calculate distance
           const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
           setDistance(dist);
-
           setError(null);
+          setLoading(false);
         },
         (err) => {
-          console.error(err);
-          setError("Precisamos da sua localização para validar o ponto.");
+          if (!mounted) return;
+          console.error("Location error:", err);
+          // Don't overwrite error if we already have a location
+          if (!location) {
+            setError("Erro ao obter localização. Tentando novamente...");
+          }
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
-      return () => navigator.geolocation.clearWatch(watchId);
-    } else {
-      setError("Geolocalização não suportada neste dispositivo.");
-    }
-  }, [session]);
+    };
+
+    // Initial fetch
+    fetchLocation();
+
+    // Poll every 10 seconds
+    const intervalId = setInterval(fetchLocation, 10000);
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [session?.user.id]);
 
   // Timer Effect
   useEffect(() => {
