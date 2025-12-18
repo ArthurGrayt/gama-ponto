@@ -1,0 +1,7 @@
+{
+  "name": "Gama Ponto",
+  "description": "Sistema de ponto eletrônico mobile-first com estética iOS/macOS, controle de jornada e geolocalização.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

@@ -1,0 +1,578 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { MapPin, AlertCircle, Clock, RefreshCw, Navigation, X, Eye, Lock, ShieldAlert, LogOut, User as UserIcon } from 'lucide-react';
+import { Button } from './components/Button';
+import { Input } from './components/Input';
+import { HistoryCard } from './components/HistoryCard';
+import { BottomNav } from './components/BottomNav';
+import { SwipeButton } from './components/SwipeButton';
+import { LocationCard } from './components/LocationCard';
+import { TokenViewer } from './components/TokenViewer';
+import { TokenChallenge } from './components/TokenChallenge';
+import Login from './components/Login';
+import { useTokenSystem } from './hooks/useTokenSystem';
+import { supabase } from './services/supabase';
+import { Session } from '@supabase/supabase-js';
+import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime } from './services/pontoService';
+import { TARGET_LOCATION, MAX_RADIUS_KM, USER_MOCK } from './constants';
+import { TipoPonto, PontoRegistro, GeoLocation, User } from './types';
+
+// --- Components ---
+
+/**
+ * Gama Center Logo Component
+ * Utiliza LITERALMENTE a imagem PNG enviada pelo usuário.
+ */
+const GamaLogo: React.FC<{ className?: string }> = ({ className = "w-28 h-28" }) => (
+  <div className={`flex items-center justify-center ${className}`}>
+    <img
+      src="/logo.png"
+      alt="Gama Ponto Logo"
+      className="w-full h-full object-contain"
+    />
+  </div>
+);
+
+const formatDecimalHours = (decimal: number): string => {
+  const sign = decimal < 0 ? '-' : '';
+  const absDecimal = Math.abs(decimal);
+  const hours = Math.floor(absDecimal);
+  const minutes = Math.round((absDecimal - hours) * 60);
+  return `${sign}${hours}h ${minutes}m`;
+};
+
+const formatMsToTimer = (ms: number): string => {
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+};
+
+const App: React.FC = () => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [location, setLocation] = useState<GeoLocation | null>(null);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Profile State
+  const [userProfile, setUserProfile] = useState<User | null>(null);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod | 'today'>('today'); // Default to today? Or day? User said "profile deve ter uma parte Hoje do lado de Dia".
+  const [reportData, setReportData] = useState<{ totalHours: number, balance: number }>({ totalHours: 0, balance: 0 });
+
+  // History State
+  const [historyType, setHistoryType] = useState<'today' | 'day' | 'week' | 'month'>('today');
+  const [historyFilterType, setHistoryFilterType] = useState<TipoPonto | 'all'>('all');
+  const [historyDate, setHistoryDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [historyRecords, setHistoryRecords] = useState<PontoRegistro[]>([]);
+
+  useEffect(() => {
+    if (session?.user.id && currentView === 'history') {
+      const date = new Date(historyDate);
+      let start = new Date(date);
+      let end = new Date(date);
+
+      if (historyType === 'today') {
+        const now = new Date();
+        start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(now);
+        end.setHours(23, 59, 59, 999);
+      } else if (historyType === 'day') {
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+      } else if (historyType === 'week') {
+        const day = start.getDay();
+        const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+        start.setDate(diff);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+      } else if (historyType === 'month') {
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setMonth(start.getMonth() + 1);
+        end.setDate(0);
+        end.setHours(23, 59, 59, 999);
+      }
+
+      const typeFilter = (historyType !== 'today' && historyFilterType !== 'all') ? historyFilterType : undefined;
+      getHistoryRecords(session.user.id, start, end, typeFilter).then(setHistoryRecords);
+    }
+  }, [session, currentView, historyType, historyDate, historyFilterType]);
+
+  useEffect(() => {
+    if (session?.user.id && currentView === 'profile' && reportPeriod !== 'today') {
+      getUserProfile(session.user.id).then(setUserProfile);
+      getReportData(session.user.id, reportPeriod as ReportPeriod).then(setReportData);
+    } else if (session?.user.id && currentView === 'profile' && reportPeriod === 'today') {
+      getUserProfile(session.user.id).then(setUserProfile);
+      // We don't need getReportData for 'today', we use workedTime
+    }
+  }, [session, currentView, reportPeriod]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+
+
+  // Token UI State
+  const [showTokenViewer, setShowTokenViewer] = useState(false);
+  const [showChallenge, setShowChallenge] = useState(false);
+
+  // App Logic State
+  const [registros, setRegistros] = useState<PontoRegistro[]>([]);
+  const [nextType, setNextType] = useState<TipoPonto>(TipoPonto.ENTRADA);
+
+  // Timer & Summary State
+  const [workedTime, setWorkedTime] = useState(0);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [finalDailyHours, setFinalDailyHours] = useState("");
+
+  // Custom Hook
+  const { token, timeLeft, totalDuration, isLocked, attempts, verifyToken } = useTokenSystem(distance);
+
+  // Load initial data
+  useEffect(() => {
+    if (!session) return;
+
+    const fetchRecords = async () => {
+      try {
+        const todays = await getTodayRegistros(session.user.id);
+        setRegistros(todays);
+        const { tipo } = determineNextPontoType(todays);
+        setNextType(tipo);
+      } catch (err) {
+        console.error("Error fetching records:", err);
+      }
+    };
+
+    fetchRecords();
+
+    // Watch Location
+    if ('geolocation' in navigator) {
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const newLoc = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          };
+          setLocation(newLoc);
+
+          // Calculate distance
+          const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
+          setDistance(dist);
+
+          setError(null);
+        },
+        (err) => {
+          console.error(err);
+          setError("Precisamos da sua localização para validar o ponto.");
+        },
+        { enableHighAccuracy: true }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    } else {
+      setError("Geolocalização não suportada neste dispositivo.");
+    }
+  }, [session]);
+
+  // Timer Effect
+  useEffect(() => {
+    // Run timer if we have records AND (user is on Dashboard OR User is on Profile->Today)
+    // User said REMOVE from Dashboard. So only Profile->Today.
+    // "o tempo trabalhado não deve ser exibido na aba 'Ínicio' e sim em 'Horas Trabalhadas'na aba de 'Perfil'"
+    // So usually we only need the INTERVAL if we are displaying it.
+    // Condition: registros > 0 AND currentView === 'profile' AND reportPeriod === 'today'
+    if (registros.length > 0 && currentView === 'profile' && reportPeriod === 'today') {
+      // Update immediately
+      setWorkedTime(calculateWorkedTime(registros));
+
+      const interval = setInterval(() => {
+        const ms = calculateWorkedTime(registros);
+        setWorkedTime(ms);
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      // If we switch away, workedTime state might be stale but it doesn't matter as we reload it on switch back.
+      // But if we want to show it in modal (after 4th point), modal uses `calculateWorkedTime(updated)` directly?
+      // No, modal uses `finalDailyHours`.
+      // So we good.
+    }
+  }, [registros, currentView, reportPeriod]);
+
+  const handleRegisterClick = () => {
+    // Intercept: Open challenge instead of registering immediately
+    if (isLocked) {
+      setError("Sistema bloqueado temporariamente. Aguarde novo token.");
+      return;
+    }
+    if (registros.length >= 4) {
+      setError("Você já registrou os 4 pontos de hoje.");
+      return;
+    }
+
+    if (!token) {
+      setError("Buscando satélites... Aguarde o token.");
+      return;
+    }
+
+    setShowChallenge(true);
+  };
+
+  const handleChallengeSuccess = async () => {
+    setShowChallenge(false);
+
+    // Proceed with registration
+    if (!location) {
+      setError("Localização não disponível.");
+      return;
+    }
+
+    if (!session) return;
+
+    setLoading(true);
+    setSuccessMsg(null);
+    setError(null);
+
+    try {
+      // Just before registering, check if this is the last one (4th)
+      const isLastPoint = registros.length === 3;
+
+      const newRecord = await registerPonto(session.user.id, nextType, location);
+
+      setSuccessMsg(`${getButtonText().split(' ')[1] || "Ponto"} Confirmado!`);
+
+      // Refresh local state
+      const updated = await getTodayRegistros(session.user.id);
+      setRegistros(updated);
+      const { tipo } = determineNextPontoType(updated);
+      setNextType(tipo);
+
+      // If limits reached (4 points), show summary
+      if (updated.length >= 4) {
+        const totalMs = calculateWorkedTime(updated);
+        const hours = totalMs / (1000 * 60 * 60);
+        setFinalDailyHours(formatDecimalHours(hours));
+        setShowSummaryModal(true);
+      }
+
+      setTimeout(() => setSuccessMsg(null), 3000);
+
+    } catch (e: any) {
+      setError(e.message || "Erro ao registrar ponto.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChallengeFail = () => {
+    // Hook automatically increments attempts internally via verifyToken, 
+    // but here we just show feedback.
+    setError(`Token incorreto!`);
+
+    // Logic to close modal if locked could go here or rely on isLocked prop in parent
+    if (attempts + 1 >= 2) {
+      setShowChallenge(false);
+    }
+  };
+
+  const getButtonText = () => {
+    switch (nextType) {
+      case TipoPonto.ENTRADA: return "Registrar Entrada";
+      case TipoPonto.ALMOCO_INICIO: return "Registrar Saída para almoço";
+      case TipoPonto.ALMOCO_FIM: return "Registrar Volta do almoço";
+      case TipoPonto.SAIDA: return "Registrar Fim de expediente";
+      default: return "Registrar Ponto";
+    }
+  };
+
+  if (!session) {
+    return <Login />;
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F2F2F7] flex flex-col items-center justify-between px-6 pt-14 pb-32 font-sans relative">
+
+      {/* Modals */}
+      {showTokenViewer && (
+        <TokenViewer
+          token={token}
+          timeLeft={timeLeft}
+          totalDuration={totalDuration}
+          onClose={() => setShowTokenViewer(false)}
+        />
+      )}
+
+      {showChallenge && token && (
+        <TokenChallenge
+          validToken={token}
+          onSuccess={handleChallengeSuccess}
+          onFail={handleChallengeFail}
+          onClose={() => setShowChallenge(false)}
+        />
+      )}
+
+      {/* Summary Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm text-center space-y-6">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-600 mb-2">
+              <Clock size={40} />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-gray-900">Bom descanso!</h2>
+              <p className="text-gray-600">
+                Até mais, <span className="font-semibold text-gray-900">{session?.user.email?.split('@')[0]}</span>!
+              </p>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+              <p className="text-sm text-gray-500 uppercase tracking-wide mb-1">Você trabalhou</p>
+              <p className="text-3xl font-bold text-ios-blue">{finalDailyHours}</p>
+            </div>
+
+            <button
+              onClick={() => setShowSummaryModal(false)}
+              className="w-full bg-black text-white font-bold py-4 rounded-2xl hover:bg-gray-800 transition-all active:scale-95"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- DASHBOARD VIEW --- */}
+      {currentView === 'dashboard' && (
+        <>
+          <div className="w-full max-w-md flex flex-col items-center space-y-8 animate-in fade-in duration-500">
+            <GamaLogo className="w-32 h-32 drop-shadow-sm" />
+
+            <div className="text-center space-y-1">
+              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Olá, {session?.user.email?.split('@')[0]}</h1>
+              <p className="text-gray-500 font-medium text-lg">
+                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+            </div>
+
+            {/* Timer REMOVED */}
+
+            <LocationCard
+              distance={distance}
+              isWithinRadius={distance !== null && distance <= MAX_RADIUS_KM}
+              loading={!location}
+            />
+
+            <div className="w-full pt-8 space-y-4">
+              {registros.length >= 4 ? (
+                <button
+                  disabled
+                  className="w-full bg-gray-200 text-gray-400 font-bold py-4 rounded-2xl cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  <Clock size={20} />
+                  <span>Jornada Completa</span>
+                </button>
+              ) : (
+                <SwipeButton
+                  text={getButtonText()}
+                  onSuccess={handleRegisterClick}
+                  isLoading={loading}
+                  disabled={!location || !!error || isLocked}
+                  successMessage={successMsg}
+                />
+              )}
+
+              {/* View Token Button */}
+              <button
+                onClick={() => {
+                  if (distance !== null && distance > MAX_RADIUS_KM) {
+                    setError("Fora da área permitida");
+                    return;
+                  }
+                  if (isLocked) {
+                    setError("Sistema bloqueado. Aguarde o próximo ciclo.");
+                    return;
+                  }
+                  if (!token) {
+                    setError("Aguardando geração de token...");
+                    return;
+                  }
+                  setShowTokenViewer(true);
+                }}
+                className={`w-full flex items-center justify-center space-x-2 px-6 py-3 rounded-xl transition-all font-semibold shadow-sm border ${isLocked || (distance !== null && distance > MAX_RADIUS_KM)
+                  ? "bg-red-50 text-red-400 border-red-100 hover:bg-red-100"
+                  : "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
+                  }`}
+              >
+                <Eye size={18} />
+                <span>Ver Token de Ponto</span>
+              </button>
+
+              {loading && <p className="text-center text-gray-400 text-sm mt-3 animate-pulse">Verificando localização...</p>}
+              {error && <p className="text-center text-red-500 text-sm mt-3 font-medium bg-red-50 py-2 px-3 rounded-lg mx-auto max-w-[90%]">{error}</p>}
+
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* --- HISTORY VIEW --- */}
+      {currentView === 'history' && (
+        <div className="w-full max-w-md h-full flex flex-col pt-6 pb-24 px-4">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6 px-2">Histórico de Pontos</h2>
+
+          {/* Filters */}
+          <div className="flex flex-col gap-3 mb-6 bg-white p-4 rounded-xl shadow-sm">
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              {(['today', 'day', 'week', 'month'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setHistoryType(t)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${historyType === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  {t === 'today' ? 'Hoje' : t === 'day' ? 'Dia' : t === 'week' ? 'Semana' : 'Mês'}
+                </button>
+              ))}
+            </div>
+
+            {historyType !== 'today' && (
+              <div className="flex gap-2">
+                <input
+                  type={historyType === 'month' ? 'month' : 'date'}
+                  value={historyType === 'month' ? historyDate.slice(0, 7) : historyDate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (historyType === 'month') setHistoryDate(`${val}-01`);
+                    else setHistoryDate(val);
+                  }}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50"
+                />
+
+                <select
+                  value={historyFilterType}
+                  onChange={(e) => setHistoryFilterType(e.target.value as TipoPonto | 'all')}
+                  className="w-1/3 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50 bg-white"
+                >
+                  <option value="all">Todos</option>
+                  <option value={TipoPonto.ENTRADA}>Entrada</option>
+                  <option value={TipoPonto.ALMOCO_INICIO}>Saída para almoço</option>
+                  <option value={TipoPonto.ALMOCO_FIM}>Volta do almoço</option>
+                  <option value={TipoPonto.SAIDA}>Fim de expediente</option>
+                  <option value={TipoPonto.AUSENCIA}>Ausência</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 px-1 custom-scrollbar">
+            {historyRecords.length > 0 ? (
+              historyRecords.map((registro) => (
+                <HistoryCard key={registro.id} record={registro} />
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 text-gray-400 space-y-2">
+                <Clock size={32} strokeWidth={1.5} />
+                <p>Nenhum registro encontrado.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- PROFILE VIEW --- */}
+      {currentView === 'profile' && (
+        <div className="flex flex-col items-center w-full px-6 pt-10 pb-24 space-y-8">
+
+          {/* Avatar & Name */}
+          <div className="flex flex-col items-center space-y-3">
+            <div className="w-24 h-24 rounded-full bg-gray-200 border-4 border-white shadow-lg overflow-hidden">
+              {userProfile?.img_url ? (
+                <img src={userProfile.img_url} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-500">
+                  <UserIcon size={40} />
+                </div>
+              )}
+            </div>
+            <h2 className="text-xl font-bold text-gray-800">{userProfile?.name || session?.user.email}</h2>
+          </div>
+
+          {/* Stats Section */}
+          <div className="w-full bg-white rounded-2xl shadow-sm p-6 space-y-6">
+
+            {/* Filter Tabs */}
+            <div className="flex p-1 bg-gray-100 rounded-lg">
+              {/* Added 'today' to the map */}
+              {(['today', 'day', 'week', 'month', 'year'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setReportPeriod(p)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${reportPeriod === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  {p === 'today' ? 'Hoje' : p === 'day' ? 'Dia' : p === 'week' ? 'Semana' : p === 'month' ? 'Mês' : 'Ano'}
+                </button>
+              ))}
+            </div>
+
+            {/* Data Display */}
+            <div className="flex flex-col items-center space-y-1">
+              <span className="text-sm text-gray-500">Horas Trabalhadas</span>
+              <p className="text-4xl font-bold text-gray-900">
+                {reportPeriod === 'today' ? formatMsToTimer(workedTime) : formatDecimalHours(reportData.totalHours)}
+              </p>
+              {reportPeriod === 'today' && registros.length > 0 && registros.length % 2 === 0 && registros.length < 4 && (
+                <span className="text-xs text-orange-500 font-medium px-2 py-0.5 bg-orange-50 rounded-full mt-1">
+                  • Pausado
+                </span>
+              )}
+            </div>
+
+            {/* Hide Balance for Today, show for others */}
+            {reportPeriod !== 'today' && (
+              <div className="border-t border-gray-100 pt-4 flex flex-col items-center space-y-1">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">Saldo de Horas</span>
+                <div className={`px-3 py-1 rounded-full text-sm font-bold ${reportData.balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                  {reportData.balance > 0 ? '+' : ''}{formatDecimalHours(reportData.balance)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Logout */}
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="flex items-center space-x-2 text-red-500 hover:text-red-700 font-medium px-6 py-3 bg-red-50 rounded-xl w-full justify-center transition-colors"
+          >
+            <LogOut size={20} />
+            <span>Sair do Aplicativo</span>
+          </button>
+        </div>
+      )}
+
+      {/* --- BOTTOM NAV --- */}
+      <BottomNav currentView={currentView} setView={setCurrentView} />
+    </div>
+  );
+};
+
+export default App;
