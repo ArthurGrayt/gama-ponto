@@ -167,54 +167,53 @@ const App: React.FC = () => {
     fetchRecords();
   }, [session]);
 
-  // Separate Effect for Location
-  useEffect(() => {
-    if (!session?.user.id) return;
+  // Manual Location Request for iOS/PWA compliance
+  const requestLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setError("Geolocalização não suportada neste dispositivo.");
+      return;
+    }
 
-    let mounted = true;
+    setLoading(true);
+    setError(null);
 
-    const fetchLocation = () => {
-      if (!('geolocation' in navigator)) {
-        setError("Geolocalização não suportada.");
-        return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const newLoc = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        };
+        setLocation(newLoc);
+
+        const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
+        setDistance(dist);
+
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        console.error("Geolocation error:", err);
+        setLoading(false);
+        if (err.code === 1) { // Permission Denied
+          setError("Permissão negada. Vá em Ajustes > Privacidade > Localização e ative para este app.");
+        } else if (err.code === 2) { // Position Unavailable
+          setError("Sinal de GPS fraco. Vá para um local a céu aberto.");
+        } else if (err.code === 3) { // Timeout
+          setError("Tempo esgotado. Verifique sua conexão e tente novamente.");
+        } else {
+          setError("Erro ao obter localização. Tente novamente.");
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 10000
       }
+    );
+  };
 
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (!mounted) return;
-          const newLoc = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          };
-          setLocation(newLoc);
-          const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
-          setDistance(dist);
-          setError(null);
-          setLoading(false);
-        },
-        (err) => {
-          if (!mounted) return;
-          console.error("Location error:", err);
-          // Don't overwrite error if we already have a location
-          if (!location) {
-            setError("Erro ao obter localização. Tentando novamente...");
-          }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    };
+  // NOTE: Removed automatic useEffect for location to comply with iOS PWA policies.
 
-    // Initial fetch
-    fetchLocation();
-
-    // Poll every 10 seconds
-    const intervalId = setInterval(fetchLocation, 10000);
-
-    return () => {
-      mounted = false;
-      clearInterval(intervalId);
-    };
-  }, [session?.user.id]);
 
   // Timer Effect
   useEffect(() => {
@@ -412,12 +411,22 @@ const App: React.FC = () => {
                   <Clock size={20} />
                   <span>Jornada Completa</span>
                 </button>
+              ) : !location || error ? (
+                <button
+                  onClick={requestLocation}
+                  disabled={loading}
+                  className={`w-full font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center space-x-2 ${loading ? "bg-gray-300 text-gray-500 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                >
+                  <MapPin size={24} />
+                  <span>{loading ? "Obtendo GPS..." : error ? "Tentar Novamente" : "Atualizar Localização"}</span>
+                </button>
               ) : (
                 <SwipeButton
                   text={getButtonText()}
                   onSuccess={handleRegisterClick}
                   isLoading={loading}
-                  disabled={!location || !!error || isLocked}
+                  disabled={isLocked}
                   successMessage={successMsg}
                 />
               )}
