@@ -331,7 +331,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7] flex flex-col items-center justify-between px-6 pt-14 pb-32 font-sans relative">
+    <div className="h-[100dvh] w-full bg-[#F2F2F7] relative overflow-hidden font-sans">
 
       {/* Modals */}
       {showTokenViewer && (
@@ -384,13 +384,13 @@ const App: React.FC = () => {
 
       {/* --- DASHBOARD VIEW --- */}
       {currentView === 'dashboard' && (
-        <>
-          <div className="w-full max-w-md flex flex-col items-center space-y-8 animate-in fade-in duration-500">
-            <GamaLogo className="w-32 h-32 drop-shadow-sm" />
+        <div className="w-full h-full flex flex-col items-center justify-start pt-10 px-6 pb-24 space-y-4 overflow-hidden">
+          <div className="w-full max-w-md flex flex-col items-center space-y-6 animate-in fade-in duration-500">
+            <GamaLogo className="w-28 h-28 drop-shadow-sm" />
 
             <div className="text-center space-y-1">
-              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Olá, {userProfile?.username || userProfile?.name || session?.user.email?.split('@')[0]}</h1>
-              <p className="text-gray-500 font-medium text-lg">
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Olá, {userProfile?.username || userProfile?.name || session?.user.email?.split('@')[0]}</h1>
+              <p className="text-gray-500 font-medium text-base">
                 {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
             </div>
@@ -403,7 +403,7 @@ const App: React.FC = () => {
               loading={!location}
             />
 
-            <div className="w-full pt-8 space-y-4">
+            <div className="w-full pt-4 space-y-3">
               {registros.length >= 4 ? (
                 <button
                   disabled
@@ -453,142 +453,145 @@ const App: React.FC = () => {
 
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* --- HISTORY VIEW --- */}
       {currentView === 'history' && (
-        <div className="w-full max-w-md h-full flex flex-col pt-6 pb-24 px-4">
-          <h2 className="text-2xl font-bold text-gray-800 mb-6 px-2">Histórico de Pontos</h2>
+        <div className="w-full h-full flex flex-col pt-10 px-4 pb-24 overflow-y-auto custom-scrollbar">
+          <div className="w-full max-w-md mx-auto flex flex-col h-full">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6 px-2">Histórico de Pontos</h2>
 
-          {/* Filters */}
-          <div className="flex flex-col gap-3 mb-6 bg-white p-4 rounded-xl shadow-sm">
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              {(['today', 'day', 'week', 'month'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setHistoryType(t)}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${historyType === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                  {t === 'today' ? 'Hoje' : t === 'day' ? 'Dia' : t === 'week' ? 'Semana' : 'Mês'}
-                </button>
-              ))}
+            {/* Filters */}
+            <div className="flex flex-col gap-3 mb-6 bg-white p-4 rounded-xl shadow-sm">
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                {(['today', 'day', 'week', 'month'] as const).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setHistoryType(t)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${historyType === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                  >
+                    {t === 'today' ? 'Hoje' : t === 'day' ? 'Dia' : t === 'week' ? 'Semana' : 'Mês'}
+                  </button>
+                ))}
+              </div>
+
+              {historyType !== 'today' && (
+                <div className="flex gap-2">
+                  <input
+                    type={historyType === 'month' ? 'month' : 'date'}
+                    value={historyType === 'month' ? historyDate.slice(0, 7) : historyDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (historyType === 'month') setHistoryDate(`${val}-01`);
+                      else setHistoryDate(val);
+                    }}
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50"
+                  />
+
+                  <select
+                    value={historyFilterType}
+                    onChange={(e) => setHistoryFilterType(e.target.value as TipoPonto | 'all')}
+                    className="w-1/3 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50 bg-white"
+                  >
+                    <option value="all">Todos</option>
+                    <option value={TipoPonto.ENTRADA}>Entrada</option>
+                    <option value={TipoPonto.ALMOCO_INICIO}>Saída para almoço</option>
+                    <option value={TipoPonto.ALMOCO_FIM}>Volta do almoço</option>
+                    <option value={TipoPonto.SAIDA}>Fim de expediente</option>
+                    <option value={TipoPonto.AUSENCIA}>Ausência</option>
+                  </select>
+                </div>
+              )}
             </div>
 
-            {historyType !== 'today' && (
-              <div className="flex gap-2">
-                <input
-                  type={historyType === 'month' ? 'month' : 'date'}
-                  value={historyType === 'month' ? historyDate.slice(0, 7) : historyDate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (historyType === 'month') setHistoryDate(`${val}-01`);
-                    else setHistoryDate(val);
-                  }}
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50"
-                />
-
-                <select
-                  value={historyFilterType}
-                  onChange={(e) => setHistoryFilterType(e.target.value as TipoPonto | 'all')}
-                  className="w-1/3 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ios-blue/50 bg-white"
-                >
-                  <option value="all">Todos</option>
-                  <option value={TipoPonto.ENTRADA}>Entrada</option>
-                  <option value={TipoPonto.ALMOCO_INICIO}>Saída para almoço</option>
-                  <option value={TipoPonto.ALMOCO_FIM}>Volta do almoço</option>
-                  <option value={TipoPonto.SAIDA}>Fim de expediente</option>
-                  <option value={TipoPonto.AUSENCIA}>Ausência</option>
-                </select>
-              </div>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto space-y-3 px-1 custom-scrollbar">
-            {historyRecords.length > 0 ? (
-              historyRecords.map((registro) => (
-                <HistoryCard key={registro.id} record={registro} />
-              ))
-            ) : (
-              <div className="flex flex-col items-center justify-center h-48 text-gray-400 space-y-2">
-                <Clock size={32} strokeWidth={1.5} />
-                <p>Nenhum registro encontrado.</p>
-              </div>
-            )}
+            <div className="flex-1 space-y-3 px-1">
+              {historyRecords.length > 0 ? (
+                historyRecords.map((registro) => (
+                  <HistoryCard key={registro.id} record={registro} />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-48 text-gray-400 space-y-2">
+                  <Clock size={32} strokeWidth={1.5} />
+                  <p>Nenhum registro encontrado.</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* --- PROFILE VIEW --- */}
       {currentView === 'profile' && (
-        <div className="flex flex-col items-center w-full px-6 pt-10 pb-24 space-y-8">
-
-          {/* Avatar & Name */}
-          <div className="flex flex-col items-center space-y-3">
-            <div className="w-24 h-24 rounded-full bg-gray-200 border-4 border-white shadow-lg overflow-hidden">
-              {userProfile?.img_url ? (
-                <img src={userProfile.img_url} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-500">
-                  <UserIcon size={40} />
-                </div>
-              )}
-            </div>
-            <h2 className="text-xl font-bold text-gray-800">{userProfile?.username || userProfile?.name || session?.user.email}</h2>
-          </div>
-
-          {/* Stats Section */}
-          <div className="w-full bg-white rounded-2xl shadow-sm p-6 space-y-6">
-
-            {/* Filter Tabs */}
-            <div className="flex p-1 bg-gray-100 rounded-lg">
-              {/* Added 'today' to the map */}
-              {(['today', 'day', 'week', 'month', 'year'] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setReportPeriod(p)}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${reportPeriod === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                  {p === 'today' ? 'Hoje' : p === 'day' ? 'Dia' : p === 'week' ? 'Semana' : p === 'month' ? 'Mês' : 'Ano'}
-                </button>
-              ))}
-            </div>
-
-            {/* Data Display */}
-            <div className="flex flex-col items-center space-y-1">
-              <span className="text-sm text-gray-500">Horas Trabalhadas</span>
-              <p className="text-4xl font-bold text-gray-900">
-                {reportPeriod === 'today' ? formatMsToTimer(workedTime) : formatDecimalHours(reportData.totalHours)}
-              </p>
-              {reportPeriod === 'today' && registros.length > 0 && registros.length % 2 === 0 && registros.length < 4 && (
-                <span className="text-xs text-orange-500 font-medium px-2 py-0.5 bg-orange-50 rounded-full mt-1">
-                  • Pausado
-                </span>
-              )}
-            </div>
-
-            {/* Hide Balance for Today, show for others */}
-            {reportPeriod !== 'today' && (
-              <div className="border-t border-gray-100 pt-4 flex flex-col items-center space-y-1">
-                <span className="text-xs text-gray-400 uppercase tracking-wide">Saldo de Horas</span>
-                <div className={`px-3 py-1 rounded-full text-sm font-bold ${reportData.balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                  }`}>
-                  {reportData.balance > 0 ? '+' : ''}{formatDecimalHours(reportData.balance)}
-                </div>
+        <div className="w-full h-full flex flex-col items-center pt-10 px-6 pb-24 space-y-8 overflow-y-auto custom-scrollbar">
+          <div className="w-full max-w-md flex flex-col items-center space-y-8">
+            {/* Avatar & Name */}
+            <div className="flex flex-col items-center space-y-3">
+              <div className="w-24 h-24 rounded-full bg-gray-200 border-4 border-white shadow-lg overflow-hidden">
+                {userProfile?.img_url ? (
+                  <img src={userProfile.img_url} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-500">
+                    <UserIcon size={40} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+              <h2 className="text-xl font-bold text-gray-800">{userProfile?.username || userProfile?.name || session?.user.email}</h2>
+            </div>
 
-          {/* Logout */}
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="flex items-center space-x-2 text-red-500 hover:text-red-700 font-medium px-6 py-3 bg-red-50 rounded-xl w-full justify-center transition-colors"
-          >
-            <LogOut size={20} />
-            <span>Sair do Aplicativo</span>
-          </button>
+            {/* Stats Section */}
+            <div className="w-full bg-white rounded-2xl shadow-sm p-6 space-y-6">
+
+              {/* Filter Tabs */}
+              <div className="flex p-1 bg-gray-100 rounded-lg">
+                {/* Added 'today' to the map */}
+                {(['today', 'day', 'week', 'month', 'year'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setReportPeriod(p)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${reportPeriod === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                  >
+                    {p === 'today' ? 'Hoje' : p === 'day' ? 'Dia' : p === 'week' ? 'Semana' : p === 'month' ? 'Mês' : 'Ano'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Data Display */}
+              <div className="flex flex-col items-center space-y-1">
+                <span className="text-sm text-gray-500">Horas Trabalhadas</span>
+                <p className="text-4xl font-bold text-gray-900">
+                  {reportPeriod === 'today' ? formatMsToTimer(workedTime) : formatDecimalHours(reportData.totalHours)}
+                </p>
+                {reportPeriod === 'today' && registros.length > 0 && registros.length % 2 === 0 && registros.length < 4 && (
+                  <span className="text-xs text-orange-500 font-medium px-2 py-0.5 bg-orange-50 rounded-full mt-1">
+                    • Pausado
+                  </span>
+                )}
+              </div>
+
+              {/* Hide Balance for Today, show for others */}
+              {reportPeriod !== 'today' && (
+                <div className="border-t border-gray-100 pt-4 flex flex-col items-center space-y-1">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">Saldo de Horas</span>
+                  <div className={`px-3 py-1 rounded-full text-sm font-bold ${reportData.balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                    {reportData.balance > 0 ? '+' : ''}{formatDecimalHours(reportData.balance)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Logout */}
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="flex items-center space-x-2 text-red-500 hover:text-red-700 font-medium px-6 py-3 bg-red-50 rounded-xl w-full justify-center transition-colors"
+            >
+              <LogOut size={20} />
+              <span>Sair do Aplicativo</span>
+            </button>
+          </div>
         </div>
       )}
 

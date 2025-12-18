@@ -1,7 +1,8 @@
 {
   "name": "Gama Ponto",
   "short_name": "GamaPonto",
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#F2F2F7",
   "theme_color": "#007AFF",
