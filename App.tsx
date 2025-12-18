@@ -168,48 +168,71 @@ const App: React.FC = () => {
   }, [session]);
 
   // Manual Location Request for iOS/PWA compliance
-  const requestLocation = () => {
+  const requestLocation = (retry = false) => {
     if (!('geolocation' in navigator)) {
       setError("Geolocalização não suportada neste dispositivo.");
       return;
     }
 
     setLoading(true);
-    setError(null);
+    if (!retry) setError(null); // Clear error only on first attempt
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const newLoc = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude
-        };
-        setLocation(newLoc);
+    // Small delay to ensure UI interaction is registered by iOS WebKit
+    setTimeout(() => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newLoc = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          };
+          setLocation(newLoc);
 
-        const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
-        setDistance(dist);
+          const dist = calculateDistanceKm(newLoc, TARGET_LOCATION);
+          setDistance(dist);
 
-        setLoading(false);
-        setError(null);
-      },
-      (err) => {
-        console.error("Geolocation error:", err);
-        setLoading(false);
-        if (err.code === 1) { // Permission Denied
-          setError("Permissão negada. Vá em Ajustes > Privacidade > Localização e ative para este app.");
-        } else if (err.code === 2) { // Position Unavailable
-          setError("Sinal de GPS fraco. Vá para um local a céu aberto.");
-        } else if (err.code === 3) { // Timeout
-          setError("Tempo esgotado. Verifique sua conexão e tente novamente.");
-        } else {
-          setError("Erro ao obter localização. Tente novamente.");
+          setLoading(false);
+          setError(null);
+        },
+        (err) => {
+          console.error("Geolocation error:", err);
+
+          // Retry Logic (Try once more after 1s)
+          if (!retry) {
+            console.log("Retrying location request...");
+            setTimeout(() => requestLocation(true), 1500);
+            return;
+          }
+
+          setLoading(false);
+
+          let msg = "Erro ao obter localização.";
+          if (err.code === 1) { // Permission Denied
+            msg = "Permissão negada. Vá em Ajustes > Privacidade > Localização e ative para o Gama Ponto.";
+          } else if (err.code === 2) { // Position Unavailable
+            msg = "Sinal de GPS fraco. Tente novamente em local aberto.";
+          } else if (err.code === 3) { // Timeout
+            msg = "Tempo esgotado ao buscar GPS. Tente novamente.";
+          }
+
+          // iOS PWA Specific Fallback Message
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+
+          if (isIOS && isStandalone) {
+            msg += " \n\n⚠️ No iPhone (PWA), se o erro persistir, abra o app diretamente no Safari.";
+          } else {
+            msg += " Verifique se o GPS está ativado.";
+          }
+
+          setError(msg);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
         }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 10000
-      }
-    );
+      );
+    }, 500);
   };
 
   // NOTE: Removed automatic useEffect for location to comply with iOS PWA policies.
@@ -413,7 +436,7 @@ const App: React.FC = () => {
                 </button>
               ) : !location || error ? (
                 <button
-                  onClick={requestLocation}
+                  onClick={() => requestLocation()}
                   disabled={loading}
                   className={`w-full font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center space-x-2 ${loading ? "bg-gray-300 text-gray-500 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
