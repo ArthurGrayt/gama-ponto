@@ -138,6 +138,10 @@ const App: React.FC = () => {
   const [showChallenge, setShowChallenge] = useState(false);
 
   // App Logic State
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+  const showIOSFallback = isIOS && isStandalone;
+
   const [registros, setRegistros] = useState<PontoRegistro[]>([]);
   const [nextType, setNextType] = useState<TipoPonto>(TipoPonto.ENTRADA);
 
@@ -435,15 +439,37 @@ const App: React.FC = () => {
                   <span>Jornada Completa</span>
                 </button>
               ) : !location || error ? (
-                <button
-                  onClick={() => requestLocation()}
-                  disabled={loading}
-                  className={`w-full font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center space-x-2 ${loading ? "bg-gray-300 text-gray-500 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700"
-                    }`}
-                >
-                  <MapPin size={24} />
-                  <span>{loading ? "Obtendo GPS..." : error ? "Tentar Novamente" : "Atualizar Localização"}</span>
-                </button>
+                showIOSFallback ? (
+                  <div className="w-full bg-orange-50 border border-orange-100 p-4 rounded-2xl flex flex-col items-center space-y-3">
+                    <div className="flex items-center space-x-2 text-orange-600 font-medium">
+                      <ShieldAlert size={24} />
+                      <span className="text-sm text-center">Localização indisponível no App</span>
+                    </div>
+                    <p className="text-xs text-center text-gray-500 px-2 leading-tight">
+                      Este dispositivo (iPhone) restringe GPS no modo aplicativo.
+                    </p>
+                    <button
+                      onClick={() => window.location.href = window.location.href}
+                      className="w-full bg-orange-500 text-white font-bold py-3 rounded-xl shadow-sm active:scale-95 transition-all flex items-center justify-center space-x-2"
+                    >
+                      <Navigation size={20} />
+                      <span>Abrir no Safari</span>
+                    </button>
+                    <p className="text-[10px] text-center text-gray-400">
+                      Toque acima ou copie o link para o Safari.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => requestLocation()}
+                    disabled={loading}
+                    className={`w-full font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center space-x-2 ${loading ? "bg-gray-300 text-gray-500 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                  >
+                    <MapPin size={24} />
+                    <span>{loading ? "Obtendo GPS..." : error ? "Tentar Novamente" : "Atualizar Localização"}</span>
+                  </button>
+                )
               ) : (
                 <SwipeButton
                   text={getButtonText()}

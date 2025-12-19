@@ -58,14 +58,24 @@ export const SwipeButton: React.FC<SwipeButtonProps> = ({ onSuccess, text, disab
   const onTouchMove = (e: React.TouchEvent) => handleMove(e.touches[0].clientX);
 
   // Mouse Events
-  const onMouseDown = (e: React.MouseEvent) => handleStart(e.clientX);
-  const onMouseMove = (e: React.MouseEvent) => handleMove(e.clientX);
+  const onMouseDown = (e: React.MouseEvent) => {
+    handleStart(e.clientX);
 
-  useEffect(() => {
-    const handleGlobalMouseUp = () => handleEnd();
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, []);
+    const onGlobalMouseMove = (moveEvent: MouseEvent) => {
+      if (isDragging.current) {
+        handleMove(moveEvent.clientX);
+      }
+    };
+
+    const onGlobalMouseUp = () => {
+      handleEnd();
+      window.removeEventListener('mousemove', onGlobalMouseMove);
+      window.removeEventListener('mouseup', onGlobalMouseUp);
+    };
+
+    window.addEventListener('mousemove', onGlobalMouseMove);
+    window.addEventListener('mouseup', onGlobalMouseUp);
+  };
 
   return (
     <div
