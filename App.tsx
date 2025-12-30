@@ -15,6 +15,7 @@ import { Session } from '@supabase/supabase-js';
 import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime } from './services/pontoService';
 import { TARGET_LOCATION, MAX_RADIUS_KM, USER_MOCK } from './constants';
 import { TipoPonto, PontoRegistro, GeoLocation, User } from './types';
+import { logAction } from './services/logger';
 
 // --- Components ---
 
@@ -643,7 +644,12 @@ const App: React.FC = () => {
 
             {/* Logout */}
             <button
-              onClick={() => supabase.auth.signOut()}
+              onClick={async () => {
+                if (session?.user) {
+                  await logAction(session.user.id, 'LOGOUT', 'Realizou logout do sistema');
+                }
+                supabase.auth.signOut();
+              }}
               className="flex items-center space-x-2 text-red-500 hover:text-red-700 font-medium px-6 py-3 bg-red-50 rounded-xl w-full justify-center transition-colors"
             >
               <LogOut size={20} />

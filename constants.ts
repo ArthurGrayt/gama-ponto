@@ -15,3 +15,6 @@ export const USER_MOCK = {
   // In a real app, verify properly on backend.
   validCodes: ['1234', '0000']
 };
+
+
+export const APP_ID = 6; // ID DO APP NO GAMAHUB

@@ -1,4 +1,5 @@
 import { PontoRegistro, TipoPonto, GeoLocation, User } from '../types';
+import { logAction } from './logger';
 import { TARGET_LOCATION, MAX_RADIUS_KM } from '../constants';
 import { supabase } from './supabase';
 
@@ -154,6 +155,8 @@ export const registerPonto = async (
   if (error) {
     throw new Error(`Erro ao salvar ponto: ${error.message}`);
   }
+
+  await logAction(userId, 'CREATE', `Registrou ponto: ${getTipoString(tipo)}`);
 
   return {
     ...data,

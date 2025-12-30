@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../services/supabase';
+import { logAction } from '../services/logger';
 import { Lock, Mail, Loader2 } from 'lucide-react';
 
 const Login: React.FC = () => {
@@ -14,13 +15,15 @@ const Login: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
         });
 
         if (error) {
             setError(error.message);
+        } else if (data.session?.user) {
+            await logAction(data.session.user.id, 'LOGIN', 'Realizou login no sistema');
         }
         setLoading(false);
     };
