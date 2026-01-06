@@ -162,8 +162,12 @@ const App: React.FC = () => {
     const fetchRecords = async () => {
       try {
         const todays = await getTodayRegistros(session.user.id);
+        // Ensure we have the profile with role
+        const profile = await getUserProfile(session.user.id);
+        if (profile) setUserProfile(profile);
+
         setRegistros(todays);
-        const { tipo } = determineNextPontoType(todays);
+        const { tipo } = determineNextPontoType(todays, profile?.role);
         setNextType(tipo);
       } catch (err) {
         console.error("Error fetching records:", err);
@@ -274,8 +278,9 @@ const App: React.FC = () => {
       setError("Sistema bloqueado temporariamente. Aguarde novo token.");
       return;
     }
-    if (registros.length >= 4) {
-      setError("Você já registrou os 4 pontos de hoje.");
+    const maxPoints = userProfile?.role === 2 ? 2 : 4;
+    if (registros.length >= maxPoints) {
+      setError(`Você já registrou os ${maxPoints} pontos de hoje.`);
       return;
     }
 
@@ -303,8 +308,10 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      // Just before registering, check if this is the last one (4th)
-      const isLastPoint = registros.length === 3;
+      // Just before registering, check if this is the last one (2nd for intern, 4th for others)
+      const maxPoints = userProfile?.role === 2 ? 2 : 4;
+      // const isLastPoint = registros.length === (maxPoints - 1); 
+
 
       const newRecord = await registerPonto(session.user.id, nextType, location);
 
@@ -313,11 +320,12 @@ const App: React.FC = () => {
       // Refresh local state
       const updated = await getTodayRegistros(session.user.id);
       setRegistros(updated);
-      const { tipo } = determineNextPontoType(updated);
+      // We rely on userProfile.role being up to date from initial fetch
+      const { tipo } = determineNextPontoType(updated, userProfile?.role);
       setNextType(tipo);
 
-      // If limits reached (4 points), show summary
-      if (updated.length >= 4) {
+      // If limits reached (2 for intern, 4 for others), show summary
+      if (updated.length >= maxPoints) {
         const totalMs = calculateWorkedTime(updated);
         const hours = totalMs / (1000 * 60 * 60);
         setFinalDailyHours(formatDecimalHours(hours));
@@ -432,7 +440,7 @@ const App: React.FC = () => {
             />
 
             <div className="w-full pt-4 space-y-3">
-              {registros.length >= 4 ? (
+              {registros.length >= (userProfile?.role === 2 ? 2 : 4) ? (
                 <button
                   disabled
                   className="w-full bg-gray-200 text-gray-400 font-bold py-4 rounded-2xl cursor-not-allowed flex items-center justify-center space-x-2"
@@ -624,7 +632,7 @@ const App: React.FC = () => {
                 <p className="text-4xl font-bold text-gray-900">
                   {reportPeriod === 'today' ? formatMsToTimer(workedTime) : formatDecimalHours(reportData.totalHours)}
                 </p>
-                {reportPeriod === 'today' && registros.length > 0 && registros.length % 2 === 0 && registros.length < 4 && (
+                {reportPeriod === 'today' && registros.length > 0 && registros.length % 2 === 0 && registros.length < (userProfile?.role === 2 ? 2 : 4) && (
                   <span className="text-xs text-orange-500 font-medium px-2 py-0.5 bg-orange-50 rounded-full mt-1">
                     • Pausado
                   </span>

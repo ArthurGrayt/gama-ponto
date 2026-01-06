@@ -74,10 +74,24 @@ export const getTodayRegistros = async (userId: string): Promise<PontoRegistro[]
  * Since `getTodayRegistros` is async now, we need to adjust the synchronous helper usage in App.tsx.
  * However, `determineNextPontoType` logic remains synchronous on the *fetched* array.
  */
-export const determineNextPontoType = (todayRecords: PontoRegistro[]): { tipo: TipoPonto, ordem: number } => {
+export const determineNextPontoType = (todayRecords: PontoRegistro[], userRole?: number): { tipo: TipoPonto, ordem: number } => {
   // Only count valid shift points
   const count = todayRecords.filter(r => r.tipo !== TipoPonto.AUSENCIA).length;
 
+  // Intern Logic (Role = 2)
+  if (userRole === 2) {
+    // Logic sequence: 1->Entrada, 2->Saida
+    let ordem = count + 1;
+    let tipo = TipoPonto.ENTRADA;
+
+    if (count === 0) tipo = TipoPonto.ENTRADA;
+    else if (count === 1) tipo = TipoPonto.SAIDA;
+    else tipo = TipoPonto.SAIDA; // Prevent overflow
+
+    return { tipo, ordem };
+  }
+
+  // Standard Logic
   // Logic sequence: 1->Entrada, 2->AlmocoInicio, 3->AlmocoFim, 4->Saida
   let ordem = count + 1;
   let tipo = TipoPonto.ENTRADA;
@@ -206,7 +220,8 @@ export const getUserProfile = async (userId: string): Promise<User | null> => {
     name: raw.name || raw.nome || raw.full_name || "Usuário",
     username: raw.username,
     codeHash: raw.codeHash || "",
-    img_url: raw.img_url
+    img_url: raw.img_url,
+    role: raw.role // Fetch role
   };
 };
 
@@ -279,7 +294,11 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
 
   const totalHours = totalMs / (1000 * 60 * 60);
 
-  const WORKDAY_HOURS = 8.75; // 8h 45m
+  // Fetch user role to determine goal
+  const user = await getUserProfile(userId);
+  const isIntern = user?.role === 2;
+  const WORKDAY_HOURS = isIntern ? 6.0 : 8.75;
+
   const expected = workDaysCount * WORKDAY_HOURS;
   const balance = totalHours - expected;
 

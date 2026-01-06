@@ -24,6 +24,7 @@ export interface User {
   username?: string;
   codeHash: string;
   img_url?: string;
+  role?: number;
 }
 
 export interface GeoLocation {
