@@ -113,24 +113,42 @@ export const registerPonto = async (
   const ordem = count + 1;
 
   // 3. Calculate Times (Lunch, Accumulated)
+  // 3. Calculate Times (Lunch, Accumulated)
   let tempo_almoco: number | null = null;
   let horas_acumuladas: number | null = null;
 
   const now = new Date();
 
-  if (ordem > 1) {
-    const entrada = todayRecords.find(r => r.ordem === 1);
-    if (entrada) {
-      const start = new Date(entrada.datahora).getTime();
-      horas_acumuladas = (now.getTime() - start) / (1000 * 60 * 60); // Hours
-    }
-  }
+  const getRec = (ord: number) => todayRecords.find(r => r.ordem === ord);
+  const p1 = getRec(1);
+  const p2 = getRec(2);
+  const p3 = getRec(3);
 
-  if (tipo === TipoPonto.ALMOCO_FIM) {
-    const saidaAlmoco = todayRecords.find(r => r.tipo === TipoPonto.ALMOCO_INICIO);
-    if (saidaAlmoco) {
-      const start = new Date(saidaAlmoco.datahora).getTime();
-      tempo_almoco = (now.getTime() - start) / (1000 * 60 * 60); // Hours
+  if (tipo === TipoPonto.ALMOCO_INICIO && p1) { // Current is P2
+    const start = new Date(p1.datahora).getTime();
+    horas_acumuladas = (now.getTime() - start) / (1000 * 60 * 60);
+  } else if (tipo === TipoPonto.ALMOCO_FIM && p1 && p2) { // Current is P3
+    // Worked time is locked to P2 when returning
+    const start = new Date(p1.datahora).getTime();
+    const end = new Date(p2.datahora).getTime();
+    horas_acumuladas = (end - start) / (1000 * 60 * 60);
+
+    // Lunch time
+    tempo_almoco = (now.getTime() - end) / (1000 * 60 * 60);
+  } else if (tipo === TipoPonto.SAIDA) { // Current is P4
+    if (p1 && p2 && p3) {
+      const start1 = new Date(p1.datahora).getTime(); // P1
+      const end1 = new Date(p2.datahora).getTime();   // P2
+      const start2 = new Date(p3.datahora).getTime(); // P3
+
+      const part1 = end1 - start1; // Morning shift
+      const part2 = now.getTime() - start2; // Afternoon shift
+
+      horas_acumuladas = (part1 + part2) / (1000 * 60 * 60);
+    } else if (p1) {
+      // Fallback: P1 -> P4 directly (no lunch logged)
+      const start = new Date(p1.datahora).getTime();
+      horas_acumuladas = (now.getTime() - start) / (1000 * 60 * 60);
     }
   }
 
@@ -221,7 +239,7 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
 
   const { data, error } = await supabase
     .from('ponto_registros')
-    .select('datahora, tipo, horas_acumuladas')
+    .select('*')
     .eq('user_id', userId)
     .gte('datahora', startTime.toISOString())
     .lte('datahora', now.toISOString()); // Up to now
@@ -230,41 +248,38 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
     return { totalHours: 0, balance: 0 };
   }
 
-  // Filter only 'Fim de expediente' (type=SAIDA) for completed shifts totals
-  // Prompt said: "horas_acumuladas" vai ser o tanto de horas que a pessoa trabalhou...
-  // We sum records that have 'horas_acumuladas'. 
-  // IMPORTANT: We only want to sum ONCE per day, usually the last 'Fim de expediente' contains the full day sum? 
-  // OR does every 'Fim de expediente' contain the sum from start?
-  // My logic in registerPonto: `horas_acumuladas = (now - entrada) - lunch`. 
-  // If user clocks out, that value is the total for the day at that moment.
-  // So we should take the MAX `horas_acumuladas` per Day to get the daily total, then sum those daily maxes.
-
-  const dailyTotals: Record<string, number> = {};
+  // Group by Day to calculate daily totals using the robust calculateWorkedTime function
+  const dailyRecords: Record<string, any[]> = {};
 
   data.forEach((r: any) => {
-    if (r.horas_acumuladas) {
-      const dayKey = new Date(r.datahora).toDateString();
-      const val = parseFloat(r.horas_acumuladas);
-      if (!dailyTotals[dayKey] || val > dailyTotals[dayKey]) {
-        dailyTotals[dayKey] = val;
-      }
+    const dayKey = new Date(r.datahora).toDateString();
+    if (!dailyRecords[dayKey]) {
+      dailyRecords[dayKey] = [];
     }
+    dailyRecords[dayKey].push({
+      ...r,
+      tipo: mapDbToType(r.tipo)
+    });
   });
 
-  let totalHours = 0;
+  let totalMs = 0;
   let workDaysCount = 0;
 
-  Object.values(dailyTotals).forEach(val => {
-    totalHours += val;
+  Object.values(dailyRecords).forEach(dayRecs => {
+    // Sort by boolean time
+    dayRecs.sort((a, b) => new Date(a.datahora).getTime() - new Date(b.datahora).getTime());
+
+    // Only count as workday if there is at least start and end or significant tracking
+    // But for balance usually we check if day is valid. 
+    // Simplified: If there are records, it's a workday.
     workDaysCount++;
+
+    totalMs += calculateWorkedTime(dayRecs as any);
   });
 
-  const WORKDAY_HOURS = 8.75; // 8h 45m
+  const totalHours = totalMs / (1000 * 60 * 60);
 
-  // For 'day', we compare against 1 workday if we have any record, or 0? 
-  // Usually balance is (Total Worked - Expected).
-  // Expected = WorkDaysFound * 8.75? Or (Days Passed in Period excluding weekends) * 8.75?
-  // Simple approach: Balance based on days worked.
+  const WORKDAY_HOURS = 8.75; // 8h 45m
   const expected = workDaysCount * WORKDAY_HOURS;
   const balance = totalHours - expected;
 

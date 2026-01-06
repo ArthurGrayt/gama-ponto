@@ -72,7 +72,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (session?.user.id && currentView === 'history') {
-      const date = new Date(historyDate);
+      const [y, m, d] = historyDate.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
       let start = new Date(date);
       let end = new Date(date);
 
