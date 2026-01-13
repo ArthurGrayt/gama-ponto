@@ -3,7 +3,8 @@ export enum TipoPonto {
   ALMOCO_INICIO = 'almoco_inicio',
   ALMOCO_FIM = 'almoco_fim',
   SAIDA = 'saida',
-  AUSENCIA = 'ausencia'
+  AUSENCIA = 'ausencia',
+  FERIADO = 'feriado'
 }
 
 export interface PontoRegistro {
@@ -12,10 +13,28 @@ export interface PontoRegistro {
   datahora: string; // ISO string
   tipo: TipoPonto;
   justificativa_local: string | null;
+  justificativa_aprovada?: boolean;
+  tipo_just?: 'atraso' | 'falta' | null;
   ordem: number;
   horas_acumuladas: number | null;
   tempo_almoco: number | null;
   fora_do_raio: boolean;
+}
+
+export interface Justificativa {
+  id: number;
+  created_at: string;
+  tipo: string;
+  texto: string;
+  aprovada: boolean | null;
+  usuario: string;
+}
+
+export interface Holiday {
+  id: number;
+  data: string; // YYYY-MM-DD
+  titulo: string;
+  tipo: string; // 'feriado'
 }
 
 export interface User {

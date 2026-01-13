@@ -17,7 +17,7 @@ export const TokenViewer: React.FC<TokenViewerProps> = ({ token, timeLeft, total
     const strokeDashoffset = circumference - (progress * circumference);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 font-sans">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 font-sans">
             <div className="bg-white rounded-[2rem] w-full max-w-sm p-8 flex flex-col items-center relative shadow-2xl animate-in zoom-in-95 duration-300">
                 <button
                     onClick={onClose}

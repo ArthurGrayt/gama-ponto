@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { JustificationModal } from './components/JustificationModal';
+import { JustificationApprovedModal } from './components/JustificationApprovedModal';
+
 import { MapPin, AlertCircle, Clock, RefreshCw, Navigation, X, Eye, Lock, ShieldAlert, LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from './components/Button';
 import { Input } from './components/Input';
@@ -9,12 +12,14 @@ import { LocationCard } from './components/LocationCard';
 import { TokenViewer } from './components/TokenViewer';
 import { TokenChallenge } from './components/TokenChallenge';
 import Login from './components/Login';
+import { Settings } from './components/Settings';
+import { InfoTab } from './components/InfoTab';
 import { useTokenSystem } from './hooks/useTokenSystem';
 import { supabase } from './services/supabase';
 import { Session } from '@supabase/supabase-js';
-import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime } from './services/pontoService';
+import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime, getSystemConfig, getLastJustificativa } from './services/pontoService';
 import { TARGET_LOCATION, MAX_RADIUS_KM, USER_MOCK } from './constants';
-import { TipoPonto, PontoRegistro, GeoLocation, User } from './types';
+import { TipoPonto, PontoRegistro, GeoLocation, User, Justificativa } from './types';
 import { logAction } from './services/logger';
 
 // --- Components ---
@@ -69,6 +74,24 @@ const App: React.FC = () => {
   const [historyFilterType, setHistoryFilterType] = useState<TipoPonto | 'all'>('all');
   const [historyDate, setHistoryDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [historyRecords, setHistoryRecords] = useState<PontoRegistro[]>([]);
+
+  // Config State
+  const [maxRadius, setMaxRadius] = useState<number>(MAX_RADIUS_KM);
+  const [isPendingJustification, setIsPendingJustification] = useState(false); // New state for justification status
+  const [approvalModalJustificativa, setApprovalModalJustificativa] = useState<Justificativa | null>(null);
+
+  // Fetch Config on Load
+  useEffect(() => {
+    getSystemConfig('max_radius_km', MAX_RADIUS_KM).then((val) => {
+      setMaxRadius(val);
+    });
+  }, []);
+
+  const refreshConfig = () => {
+    getSystemConfig('max_radius_km', MAX_RADIUS_KM).then((val) => {
+      setMaxRadius(val);
+    });
+  };
 
   useEffect(() => {
     if (session?.user.id && currentView === 'history') {
@@ -138,6 +161,7 @@ const App: React.FC = () => {
   // Token UI State
   const [showTokenViewer, setShowTokenViewer] = useState(false);
   const [showChallenge, setShowChallenge] = useState(false);
+  const [showJustificationModal, setShowJustificationModal] = useState(false);
 
   // App Logic State
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -167,6 +191,27 @@ const App: React.FC = () => {
         if (profile) setUserProfile(profile);
 
         setRegistros(todays);
+
+        // Check pending justification from new table
+        const lastJust = await getLastJustificativa(session.user.id);
+
+        if (lastJust) {
+          if (lastJust.aprovada === null) {
+            setIsPendingJustification(true);
+          } else if (lastJust.aprovada === true) {
+            setIsPendingJustification(false);
+            // Check if already acknowledged
+            const lastAckId = localStorage.getItem('ack_just_id');
+            if (!lastAckId || parseInt(lastAckId) !== lastJust.id) {
+              setApprovalModalJustificativa(lastJust);
+            }
+          } else {
+            setIsPendingJustification(false);
+          }
+        } else {
+          setIsPendingJustification(false);
+        }
+
         const { tipo } = determineNextPontoType(todays, profile?.role);
         setNextType(tipo);
       } catch (err) {
@@ -176,6 +221,41 @@ const App: React.FC = () => {
 
     fetchRecords();
   }, [session]);
+
+  // Polling for Justification Status (Every 30s if pending)
+  useEffect(() => {
+    if (!session || !isPendingJustification) return;
+
+    const interval = setInterval(async () => {
+      console.log("Polling justification status...");
+      const lastJust = await getLastJustificativa(session.user.id);
+
+      if (lastJust) {
+        if (lastJust.aprovada === true) {
+          setIsPendingJustification(false);
+          setApprovalModalJustificativa(lastJust); // Show modal immediately
+
+          // Also refresh records to show the new generated points!
+          const updated = await getTodayRegistros(session.user.id);
+          setRegistros(updated);
+          const { tipo } = determineNextPontoType(updated, userProfile?.role);
+          setNextType(tipo);
+        } else if (lastJust.aprovada === false) {
+          // Rejected? Logic not defined, but we stop pending.
+          setIsPendingJustification(false);
+        }
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [session, isPendingJustification, userProfile]);
+
+  const handleCloseApprovalModal = () => {
+    if (approvalModalJustificativa) {
+      localStorage.setItem('ack_just_id', approvalModalJustificativa.id.toString());
+    }
+    setApprovalModalJustificativa(null);
+  };
 
   // Manual Location Request for iOS/PWA compliance
   const requestLocation = (retry = false) => {
@@ -284,12 +364,61 @@ const App: React.FC = () => {
       return;
     }
 
+    // Check logic for Justification
+    if (distance && distance > maxRadius) {
+      setShowJustificationModal(true);
+      return;
+    }
+
     if (!token) {
       setError("Buscando satélites... Aguarde o token.");
       return;
     }
 
     setShowChallenge(true);
+  };
+
+  const handleJustificationSubmit = async (text: string, file: File | null, type: 'atraso' | 'falta') => {
+    setShowJustificationModal(false);
+    if (!location) {
+      setError("Localização não disponível.");
+      return;
+    }
+    if (!session) return;
+
+    setLoading(true);
+    setSuccessMsg(null);
+    setError(null);
+
+    try {
+      const maxPoints = userProfile?.role === 2 ? 2 : 4;
+
+      // Call register with justification
+      const newRecord = await registerPonto(session.user.id, nextType, location, text, file, type);
+
+      setSuccessMsg(`${getButtonText().split(' ')[1] || "Ponto"} Confirmado (Justificado)!`);
+      setIsPendingJustification(true); // Update state immediately
+
+      // Refresh local state
+      const updated = await getTodayRegistros(session.user.id);
+      setRegistros(updated);
+      const { tipo } = determineNextPontoType(updated, userProfile?.role);
+      setNextType(tipo);
+
+      if (updated.length >= maxPoints) {
+        const totalMs = calculateWorkedTime(updated);
+        const hours = totalMs / (1000 * 60 * 60);
+        setFinalDailyHours(formatDecimalHours(hours));
+        setShowSummaryModal(true);
+      }
+
+      setTimeout(() => setSuccessMsg(null), 3000);
+
+    } catch (e: any) {
+      setError(e.message || "Erro ao registrar ponto justificado.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleChallengeSuccess = async () => {
@@ -352,7 +481,20 @@ const App: React.FC = () => {
     }
   };
 
+  // Helper to determine if we should show "Aguardando aprovação"
+  // NOW DEPRECATED: We use isPendingJustification state loaded from DB
+  const isPendingApproval = () => isPendingJustification;
+
   const getButtonText = () => {
+    if (isPendingJustification) {
+      return "Aguardando aprovação";
+    }
+
+    if (distance && distance > maxRadius) {
+      return "Justificar Ausência";
+    }
+
+
     switch (nextType) {
       case TipoPonto.ENTRADA: return "Registrar Entrada";
       case TipoPonto.ALMOCO_INICIO: return "Registrar Saída para almoço";
@@ -388,9 +530,17 @@ const App: React.FC = () => {
         />
       )}
 
+      {showJustificationModal && (
+        <JustificationModal
+          isOpen={showJustificationModal}
+          onClose={() => setShowJustificationModal(false)}
+          onSubmit={handleJustificationSubmit}
+        />
+      )}
+
       {/* Summary Modal */}
       {showSummaryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm text-center space-y-6">
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-600 mb-2">
               <Clock size={40} />
@@ -435,7 +585,7 @@ const App: React.FC = () => {
 
             <LocationCard
               distance={distance}
-              isWithinRadius={distance !== null && distance <= MAX_RADIUS_KM}
+              isWithinRadius={distance !== null && distance <= maxRadius}
               loading={!location}
             />
 
@@ -485,15 +635,17 @@ const App: React.FC = () => {
                   text={getButtonText()}
                   onSuccess={handleRegisterClick}
                   isLoading={loading}
-                  disabled={isLocked}
+                  disabled={isLocked || isPendingApproval()}
                   successMessage={successMsg}
+                  customTextClass={isPendingApproval() ? 'text-red-500 font-bold' : undefined}
                 />
               )}
 
               {/* View Token Button */}
+              {/* View Token Button */}
               <button
                 onClick={() => {
-                  if (distance !== null && distance > MAX_RADIUS_KM) {
+                  if (distance !== null && distance > maxRadius) {
                     setError("Fora da área permitida");
                     return;
                   }
@@ -507,8 +659,9 @@ const App: React.FC = () => {
                   }
                   setShowTokenViewer(true);
                 }}
-                className={`w-full flex items-center justify-center space-x-2 px-6 py-3 rounded-xl transition-all font-semibold shadow-sm border ${isLocked || (distance !== null && distance > MAX_RADIUS_KM)
-                  ? "bg-red-50 text-red-400 border-red-100 hover:bg-red-100"
+                // Hide if outside radius
+                className={`w-full flex items-center justify-center space-x-2 px-6 py-3 rounded-xl transition-all font-semibold shadow-sm border ${isLocked || (distance !== null && distance > maxRadius)
+                  ? "hidden" // Hide completely if outside radius or locked
                   : "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
                   }`}
               >
@@ -668,8 +821,27 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* --- SETTINGS VIEW --- */}
+      {currentView === 'settings' && userProfile?.role === 7 && (
+        <Settings
+          currentRadius={maxRadius}
+          onUpdate={refreshConfig}
+        />
+      )}
+
+      {/* --- INFO VIEW --- */}
+      {currentView === 'info' && (
+        <InfoTab />
+      )}
+
       {/* --- BOTTOM NAV --- */}
-      <BottomNav currentView={currentView} setView={setCurrentView} />
+      <BottomNav currentView={currentView} setView={setCurrentView} userRole={userProfile?.role} />
+
+      {/* Approval Notification Modal */}
+      <JustificationApprovedModal
+        justificativa={approvalModalJustificativa}
+        onClose={handleCloseApprovalModal}
+      />
     </div>
   );
 };

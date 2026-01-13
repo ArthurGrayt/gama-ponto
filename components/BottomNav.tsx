@@ -1,13 +1,14 @@
 import React from 'react';
-import { Home, Clock, User } from 'lucide-react';
+import { Home, Clock, User, Settings, Info } from 'lucide-react';
 
 interface BottomNavProps {
   currentView: string;
   setView: (view: string) => void;
+  userRole?: number;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentView, setView }) => {
-  const navItemClass = (view: string) => 
+export const BottomNav: React.FC<BottomNavProps> = ({ currentView, setView, userRole }) => {
+  const navItemClass = (view: string) =>
     `flex flex-col items-center justify-center w-full h-full space-y-1 ${currentView === view ? 'text-ios-blue' : 'text-gray-400 hover:text-gray-600'}`;
 
   return (
@@ -24,6 +25,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentView, setView }) =>
         <User size={24} strokeWidth={currentView === 'profile' ? 2.5 : 2} />
         <span className="text-[10px] font-medium">Perfil</span>
       </button>
+      <button onClick={() => setView('info')} className={navItemClass('info')}>
+        <Info size={24} strokeWidth={currentView === 'info' ? 2.5 : 2} />
+        <span className="text-[10px] font-medium">Informações</span>
+      </button>
+      {userRole === 7 && (
+        <button onClick={() => setView('settings')} className={navItemClass('settings')}>
+          <Settings size={24} strokeWidth={currentView === 'settings' ? 2.5 : 2} />
+          <span className="text-[10px] font-medium">Configurações</span>
+        </button>
+      )}
     </div>
   );
 };

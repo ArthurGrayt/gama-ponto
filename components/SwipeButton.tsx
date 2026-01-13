@@ -6,16 +6,24 @@ interface SwipeButtonProps {
   text: string;
   disabled?: boolean;
   isLoading?: boolean;
-  successMessage?: string | null; // Prop para mensagem de sucesso (ex: "Entrada Confirmada")
+  successMessage?: string | null;
+  customTextClass?: string;
 }
 
-export const SwipeButton: React.FC<SwipeButtonProps> = ({ onSuccess, text, disabled, isLoading, successMessage }) => {
+export const SwipeButton: React.FC<SwipeButtonProps> = ({
+  onSuccess,
+  text,
+  disabled,
+  isLoading,
+  successMessage,
+  customTextClass
+}) => {
   const [dragWidth, setDragWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const startX = useRef(0);
 
-  // Se houver mensagem de sucesso, forçamos o botão a ficar "cheio" visualmente
+  // If success message exists, force button to "filled" state visually
   const isSuccess = !!successMessage;
 
   const reset = () => {
@@ -42,7 +50,7 @@ export const SwipeButton: React.FC<SwipeButtonProps> = ({ onSuccess, text, disab
       isDragging.current = false;
       setDragWidth(maxDrag);
       onSuccess();
-      // Não resetamos imediatamente aqui, o pai controlará o estado de loading/success
+      // Don't reset immediately here, parent will control loading/success state
       setTimeout(reset, 1000);
     }
   };
@@ -93,7 +101,7 @@ export const SwipeButton: React.FC<SwipeButtonProps> = ({ onSuccess, text, disab
 
       {/* Normal State Text */}
       <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${isSuccess ? 'opacity-0' : 'opacity-100'} pl-14`}>
-        <span className="text-gray-500 font-medium text-lg animate-pulse">
+        <span className={`font-medium text-lg animate-pulse ${customTextClass || 'text-gray-500'}`}>
           {isLoading ? 'Processando...' : text}
         </span>
       </div>

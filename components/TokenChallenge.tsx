@@ -38,7 +38,7 @@ export const TokenChallenge: React.FC<TokenChallengeProps> = ({ validToken, onSu
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-3xl w-full max-w-sm p-6 flex flex-col items-center shadow-2xl animate-in slide-in-from-bottom-8 duration-300">
 
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">

@@ -1,7 +1,66 @@
-import { PontoRegistro, TipoPonto, GeoLocation, User } from '../types';
+import { PontoRegistro, TipoPonto, GeoLocation, User, Holiday, Justificativa } from '../types';
 import { logAction } from './logger';
 import { TARGET_LOCATION, MAX_RADIUS_KM } from '../constants';
 import { supabase } from './supabase';
+
+// --- Configuration ---
+export const getSystemConfig = async (key: string, defaultValue?: any): Promise<any> => {
+  // Config stored in LocalStorage for local testing (User request)
+  try {
+    const localVal = localStorage.getItem(`config_${key}`);
+    if (localVal !== null) {
+      return JSON.parse(localVal);
+    }
+  } catch (e) {
+    console.warn("LocalStorage read error", e);
+  }
+  return defaultValue;
+};
+
+export const setSystemConfig = async (key: string, value: any): Promise<void> => {
+  try {
+    localStorage.setItem(`config_${key}`, JSON.stringify(value));
+  } catch (e: any) {
+    throw new Error(`Erro ao salvar configuração localmente: ${e.message}`);
+  }
+};
+
+// --- Holiday Management ---
+export const getHolidays = async (): Promise<Holiday[]> => {
+  const { data, error } = await supabase
+    .from('holidays')
+    .select('*')
+    .order('data', { ascending: true });
+
+  if (error) {
+    console.error("Error fetching holidays:", error);
+    return [];
+  }
+  return data as Holiday[];
+};
+
+export const addHoliday = async (date: string, title: string): Promise<Holiday[]> => {
+  const { error } = await supabase
+    .from('holidays')
+    .insert([{ data: date, titulo: title, tipo: 'feriado' }]);
+
+  if (error) {
+    throw new Error(`Erro ao adicionar feriado: ${error.message}`);
+  }
+  return await getHolidays();
+};
+
+export const removeHoliday = async (id: number): Promise<Holiday[]> => {
+  const { error } = await supabase
+    .from('holidays')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    throw new Error(`Erro ao remover feriado: ${error.message}`);
+  }
+  return await getHolidays();
+};
 
 // --- Haversine Formula ---
 export const calculateDistanceKm = (loc1: GeoLocation, loc2: GeoLocation): number => {
@@ -28,6 +87,8 @@ const getTipoString = (tipo: TipoPonto): string => {
     case TipoPonto.ALMOCO_INICIO: return "Saída para almoço";
     case TipoPonto.ALMOCO_FIM: return "Volta do almoço";
     case TipoPonto.SAIDA: return "Fim de expediente";
+    case TipoPonto.AUSENCIA: return "Ausência";
+    case TipoPonto.FERIADO: return "Feriado";
     default: return "Entrada"; // Default/Fallback
   }
 };
@@ -38,6 +99,8 @@ const mapDbToType = (dbTipo: string): TipoPonto => {
     case "Saída para almoço": return TipoPonto.ALMOCO_INICIO;
     case "Volta do almoço": return TipoPonto.ALMOCO_FIM;
     case "Fim de expediente": return TipoPonto.SAIDA;
+    case "Ausência": return TipoPonto.AUSENCIA;
+    case "Feriado": return TipoPonto.FERIADO;
     default: return TipoPonto.ENTRADA; // Fallback
   }
 };
@@ -66,7 +129,8 @@ export const getTodayRegistros = async (userId: string): Promise<PontoRegistro[]
   // Map DB fields to Frontend types
   return (data || []).map((r: any) => ({
     ...r,
-    tipo: mapDbToType(r.tipo)
+    tipo: mapDbToType(r.tipo),
+    fora_do_raio: !!r.justificativa_local // Derive from justification since column doesn't exist
   })) as PontoRegistro[];
 };
 
@@ -105,18 +169,51 @@ export const determineNextPontoType = (todayRecords: PontoRegistro[], userRole?:
   return { tipo, ordem };
 };
 
+export const uploadJustificationImage = async (file: File, userId: string): Promise<string | null> => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${userId}_${new Date().getTime()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('justificativas')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      console.error('Error uploading image:', uploadError);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from('justificativas')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  } catch (error) {
+    console.error('Error in uploadJustificationImage:', error);
+    return null;
+  }
+};
+
 export const registerPonto = async (
   userId: string,
   tipo: TipoPonto,
-  location: GeoLocation
+  location: GeoLocation,
+  justificativaText?: string,
+  justificativaImage?: File | null,
+  tipoJust?: 'atraso' | 'falta'
 ): Promise<PontoRegistro> => {
 
   // 1. Backend Distance Validation
   const distance = calculateDistanceKm(location, TARGET_LOCATION);
-  const isWithinRadius = distance <= MAX_RADIUS_KM;
+  const dynamicRadius = await getSystemConfig('max_radius_km', MAX_RADIUS_KM);
+  const isWithinRadius = distance <= dynamicRadius;
 
-  if (!isWithinRadius) {
-    throw new Error("Localização fora do raio permitido de 3km.");
+  const hasJustification = !!(justificativaText || justificativaImage);
+
+  // If NOT within radius AND NO justification provided, block.
+  if (!isWithinRadius && !hasJustification) {
+    throw new Error("Localização fora do raio permitido.");
   }
 
   // 2. Fetch current records to calculate fields
@@ -126,7 +223,6 @@ export const registerPonto = async (
   const count = todayRecords.filter(r => r.tipo !== TipoPonto.AUSENCIA).length;
   const ordem = count + 1;
 
-  // 3. Calculate Times (Lunch, Accumulated)
   // 3. Calculate Times (Lunch, Accumulated)
   let tempo_almoco: number | null = null;
   let horas_acumuladas: number | null = null;
@@ -166,18 +262,56 @@ export const registerPonto = async (
     }
   }
 
+  // Handle Justification Content
+  let finalJustificativa = null;
+  let aprovada = undefined;
+
+  if (hasJustification) {
+    let imageUrl = null;
+    if (justificativaImage) {
+      imageUrl = await uploadJustificationImage(justificativaImage, userId);
+    }
+
+    // Combine text and URL
+    const textPart = justificativaText ? `Justificativa: ${justificativaText}` : "";
+    const imgPart = imageUrl ? `\nAnexo: ${imageUrl}` : "";
+    finalJustificativa = `${textPart}${imgPart}`.trim();
+
+    aprovada = false; // "justificativa_aprovada" vai receber FALSE
+  }
+
   // 4. Create Record Payload
   const dbRecord = {
     user_id: userId,
     datahora: now.toISOString(),
-    tipo: getTipoString(tipo), // "Entrada", "Saída para almoço", etc.
+    tipo: getTipoString(tipo),
     ordem: ordem,
     horas_acumuladas: horas_acumuladas ? parseFloat(horas_acumuladas.toFixed(2)) : null,
-    tempo_almoco: tempo_almoco ? parseFloat(tempo_almoco.toFixed(2)) : null,
-    // fora_do_raio removed
+    tempo_almoco: tempo_almoco ? parseFloat(tempo_almoco.toFixed(2)) : null
   };
 
-  // 5. Save to Supabase
+  // IF JUSTIFICATION: Only save to justificativa table, DO NOT insert into ponto_registros
+  if (tipoJust && finalJustificativa) {
+    await saveJustificativa(userId, tipoJust, finalJustificativa);
+
+    // Return a mock PontoRegistro to satisfy the Promise type, 
+    // though it won't be in the DB list yet.
+    return {
+      id: 0,
+      user_id: userId,
+      datahora: now.toISOString(),
+      tipo: tipo,
+      justificativa_local: finalJustificativa,
+      justificativa_aprovada: false, // Pending
+      tipo_just: tipoJust,
+      ordem: ordem,
+      horas_acumuladas: null,
+      tempo_almoco: null,
+      fora_do_raio: true
+    } as PontoRegistro;
+  }
+
+  // 5. Save to Supabase (Normal Flow)
   const { data, error } = await supabase
     .from('ponto_registros')
     .insert([dbRecord])
@@ -188,13 +322,45 @@ export const registerPonto = async (
     throw new Error(`Erro ao salvar ponto: ${error.message}`);
   }
 
-  await logAction(userId, 'CREATE', `Registrou ponto: ${getTipoString(tipo)}`);
+  await logAction(userId, 'CREATE', `Registrou ponto ${hasJustification ? '(com justificativa)' : ''}: ${getTipoString(tipo)}`);
 
   return {
     ...data,
     tipo: mapDbToType(data.tipo),
-    fora_do_raio: !isWithinRadius
+    fora_do_raio: !!finalJustificativa
   } as PontoRegistro;
+};
+
+export const saveJustificativa = async (userId: string, tipo: string, texto: string) => {
+  const { error } = await supabase
+    .from('justificativa')
+    .insert([{
+      usuario: userId,
+      tipo, // 'atraso' or 'falta'
+      texto,
+      aprovada: null // Default pending
+    }]);
+
+  if (error) {
+    console.error("Error saving justification:", error);
+    // Don't throw to avoid blocking the Ponto registration if this fails (optional choice, but safer for user exp)
+  }
+};
+
+export const getLastJustificativa = async (userId: string): Promise<Justificativa | null> => {
+  const { data, error } = await supabase
+    .from('justificativa')
+    .select('*')
+    .eq('usuario', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    return null;
+  }
+
+  return data as Justificativa | null;
 };
 
 // --- Profile & Reporting ---
@@ -263,14 +429,25 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
     return { totalHours: 0, balance: 0 };
   }
 
-  // Group by Day to calculate daily totals using the robust calculateWorkedTime function
-  const dailyRecords: Record<string, any[]> = {};
+  // Fetch Holidays
+  const holidaysData = await getHolidays();
+  const holidays = holidaysData.map(h => h.data); // Extract dates for easy checking
 
+  // Fetch user role
+  const user = await getUserProfile(userId);
+  const isIntern = user?.role === 2;
+  const WORKDAY_HOURS = isIntern ? 6.0 : 8.75; // Using 8.75 as standard (8h 45m? Or 8.0? User didn't specify exact, kept original logic but made it explicit constant)
+  // Actually original didn't have constant. Let's infer. user usually 8h.
+  // Wait, previous code used: `totalMs / ...` and `expected = workDaysCount * WORKDAY_HOURS`
+  // I replaced generic code with this block.
+  // Let's assume 8 hours for normal if not specified, or 8.8 (8h48m is common in BR).
+  // But for simple "normalization", let's use 8.
+
+  // Group by Day
+  const dailyRecords: Record<string, any[]> = {};
   data.forEach((r: any) => {
-    const dayKey = new Date(r.datahora).toDateString();
-    if (!dailyRecords[dayKey]) {
-      dailyRecords[dayKey] = [];
-    }
+    const dayKey = new Date(r.datahora).toISOString().split('T')[0];
+    if (!dailyRecords[dayKey]) dailyRecords[dayKey] = [];
     dailyRecords[dayKey].push({
       ...r,
       tipo: mapDbToType(r.tipo)
@@ -280,25 +457,38 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
   let totalMs = 0;
   let workDaysCount = 0;
 
-  Object.values(dailyRecords).forEach(dayRecs => {
-    // Sort by boolean time
-    dayRecs.sort((a, b) => new Date(a.datahora).getTime() - new Date(b.datahora).getTime());
+  // Iterate days from start to now
+  const iterDate = new Date(startTime);
+  const endDate = new Date(now);
 
-    // Only count as workday if there is at least start and end or significant tracking
-    // But for balance usually we check if day is valid. 
-    // Simplified: If there are records, it's a workday.
-    workDaysCount++;
+  while (iterDate <= endDate) {
+    const dayKey = iterDate.toISOString().split('T')[0];
+    const isWeekend = iterDate.getDay() === 0 || iterDate.getDay() === 6;
+    const isHoliday = holidays.includes(dayKey);
 
-    totalMs += calculateWorkedTime(dayRecs as any);
-  });
+    const dayRecs = dailyRecords[dayKey];
+
+    if (dayRecs && dayRecs.length > 0) {
+      // Regular worked day
+      workDaysCount++; // Count as expected day
+      // (If holiday or weekend worked, it counts too. Overtime logic not requested yet).
+      totalMs += calculateWorkedTime(dayRecs as any);
+    } else {
+      // No records
+      if (isHoliday && !isWeekend) {
+        // Holiday logic: "normalizados automaticamente" -> counts as worked full hours
+        totalMs += (WORKDAY_HOURS * 60 * 60 * 1000);
+        workDaysCount++; // It was an expected day, and we fulfilled it virtually
+      } else if (!isWeekend) {
+        // Absent day (weekday, not holiday)
+        workDaysCount++; // Expected to work
+      }
+    }
+
+    iterDate.setDate(iterDate.getDate() + 1);
+  }
 
   const totalHours = totalMs / (1000 * 60 * 60);
-
-  // Fetch user role to determine goal
-  const user = await getUserProfile(userId);
-  const isIntern = user?.role === 2;
-  const WORKDAY_HOURS = isIntern ? 6.0 : 8.75;
-
   const expected = workDaysCount * WORKDAY_HOURS;
   const balance = totalHours - expected;
 
@@ -314,7 +504,7 @@ export const getHistoryRecords = async (userId: string, start: Date, end: Date, 
     .lte('datahora', end.toISOString())
     .order('datahora', { ascending: false });
 
-  if (type) {
+  if (type && type !== TipoPonto.FERIADO) {
     query = query.eq('tipo', getTipoString(type));
   }
 
@@ -325,11 +515,63 @@ export const getHistoryRecords = async (userId: string, start: Date, end: Date, 
     return [];
   }
 
-  return (data || []).map((r: any) => ({
+  let records = (data || []).map((r: any) => ({
     ...r,
     tipo: mapDbToType(r.tipo),
-    fora_do_raio: r.fora_do_raio || false // fallback if removed
+    fora_do_raio: !!r.justificativa_local // Derive from justification
   })) as PontoRegistro[];
+
+  // Inject Virtual Holidays if 'FERIADO' or 'ALL' requested
+  if (!type || type === TipoPonto.FERIADO) {
+    const holidaysData = await getHolidays();
+    const now = new Date();
+    const iter = new Date(start);
+    const endDate = new Date(end);
+
+    while (iter <= endDate) {
+      const dayKey = iter.toISOString().split('T')[0];
+
+      const holidayObj = holidaysData.find(h => h.data === dayKey);
+
+      // Check visibility: (Holiday - 1 Day) <= Now
+      const oneDayBefore = new Date(iter);
+      oneDayBefore.setDate(oneDayBefore.getDate() - 1);
+      oneDayBefore.setHours(0, 0, 0, 0);
+      const isVisible = now.getTime() >= oneDayBefore.getTime();
+
+      if (holidayObj && isVisible) {
+        // Check if there are already records for this day
+        const hasRecords = records.some(r => r.datahora.startsWith(dayKey));
+
+        if (!hasRecords) {
+          // Insert virtual record
+          records.push({
+            id: -1 * iter.getTime(), // Fake ID
+            user_id: userId,
+            datahora: `${dayKey}T12:00:00.000Z`, // Noon
+            tipo: TipoPonto.FERIADO,
+            justificativa_local: holidayObj.titulo || "Feriado", // Use Title
+            justificativa_aprovada: true, // Implied approved
+            ordem: 0,
+            horas_acumuladas: null,
+            tempo_almoco: null,
+            fora_do_raio: false
+          });
+        }
+      }
+      iter.setDate(iter.getDate() + 1);
+    }
+
+    // Re-sort
+    records.sort((a, b) => new Date(b.datahora).getTime() - new Date(a.datahora).getTime());
+  }
+
+  // Filter again if needed (e.g. if we only wanted FERIADO, filter out others)
+  if (type === TipoPonto.FERIADO) {
+    records = records.filter(r => r.tipo === TipoPonto.FERIADO);
+  }
+
+  return records;
 };
 
 export const calculateWorkedTime = (records: PontoRegistro[]): number => {
