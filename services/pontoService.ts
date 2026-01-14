@@ -179,6 +179,8 @@ export const uploadJustificationImage = async (file: File, userId: string): Prom
       .from('justificativas')
       .upload(filePath, file);
 
+    console.log("Upload result:", uploadError ? "Error" : "Success", filePath);
+
     if (uploadError) {
       console.error('Error uploading image:', uploadError);
       return null;
@@ -265,17 +267,19 @@ export const registerPonto = async (
   // Handle Justification Content
   let finalJustificativa = null;
   let aprovada = undefined;
+  let imageUrl: string | null = null;
 
   if (hasJustification) {
-    let imageUrl = null;
     if (justificativaImage) {
+      console.log("Uploading justification image...", justificativaImage.name);
       imageUrl = await uploadJustificationImage(justificativaImage, userId);
+      console.log("Image URL returned:", imageUrl);
     }
 
     // Combine text and URL
     const textPart = justificativaText ? `Justificativa: ${justificativaText}` : "";
-    const imgPart = imageUrl ? `\nAnexo: ${imageUrl}` : "";
-    finalJustificativa = `${textPart}${imgPart}`.trim();
+
+    finalJustificativa = textPart.trim();
 
     aprovada = false; // "justificativa_aprovada" vai receber FALSE
   }
@@ -291,8 +295,19 @@ export const registerPonto = async (
   };
 
   // IF JUSTIFICATION: Only save to justificativa table, DO NOT insert into ponto_registros
-  if (tipoJust && finalJustificativa) {
-    await saveJustificativa(userId, tipoJust, finalJustificativa);
+  if (tipoJust) {
+    console.log("Saving justification:", { userId, tipoJust, texto: justificativaText, imageUrl });
+
+    if (imageUrl) {
+      console.log("Image URL to be saved:", imageUrl);
+    }
+
+    // User requested "somente pegue a url que esta indo no campo 'texto' e faça ir no campo 'img'"
+    // We already pass imageUrl correctly here, and we removed it from 'justificativaText' above.
+    console.log("--- DEBUG: CALLING SAVE JUSTIFICATIVA V3 (Clean Text) ---");
+    console.log("Text:", justificativaText);
+    console.log("Image:", imageUrl);
+    await saveJustificativa(userId, tipoJust, justificativaText || "", imageUrl);
 
     // Return a mock PontoRegistro to satisfy the Promise type, 
     // though it won't be in the DB list yet.
@@ -331,15 +346,28 @@ export const registerPonto = async (
   } as PontoRegistro;
 };
 
-export const saveJustificativa = async (userId: string, tipo: string, texto: string) => {
-  const { error } = await supabase
+export const saveJustificativa = async (userId: string, tipo: string, texto: string, imgUrl?: string | null) => {
+  const payload = {
+    usuario: userId,
+    tipo, // 'atraso' or 'falta'
+    texto,
+    img: imgUrl || null,
+    aprovada: null // Default pending
+  };
+
+  console.log("Attempting to insert into justificativa table with payload:", payload);
+
+  const { data, error } = await supabase
     .from('justificativa')
-    .insert([{
-      usuario: userId,
-      tipo, // 'atraso' or 'falta'
-      texto,
-      aprovada: null // Default pending
-    }]);
+    .insert([payload])
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error saving justification table:", error);
+  } else {
+    console.log("Justification saved successfully to table. Inserted Data:", data);
+  }
 
   if (error) {
     console.error("Error saving justification:", error);

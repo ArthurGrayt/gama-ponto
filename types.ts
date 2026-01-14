@@ -28,6 +28,7 @@ export interface Justificativa {
   texto: string;
   aprovada: boolean | null;
   usuario: string;
+  img?: string | null;
 }
 
 export interface Holiday {
