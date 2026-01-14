@@ -45,6 +45,7 @@ export interface User {
   codeHash: string;
   img_url?: string;
   role?: number;
+  birthdate?: string; // YYYY-MM-DD
 }
 
 export interface GeoLocation {

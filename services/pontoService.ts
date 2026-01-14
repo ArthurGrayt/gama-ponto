@@ -415,8 +415,44 @@ export const getUserProfile = async (userId: string): Promise<User | null> => {
     username: raw.username,
     codeHash: raw.codeHash || "",
     img_url: raw.img_url,
-    role: raw.role // Fetch role
+    role: raw.role, // Fetch role
+    birthdate: raw.birthdate // Fetch birthdate
   };
+};
+
+export const updateUserBirthdate = async (userId: string, birthdate: string): Promise<void> => {
+  const { error } = await supabase
+    .from('users')
+    .update({ birthdate })
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new Error(`Erro ao salvar aniversário: ${error.message}`);
+  }
+};
+
+export const getAllUserBirthdays = async (): Promise<User[]> => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, user_id, username, img_url, birthdate')
+    .not('birthdate', 'is', null) // Only users with birthdays
+    .order('username', { ascending: true });
+
+  if (error) {
+    console.error("Error fetching birthdays:", error);
+    return [];
+  }
+
+  // Map to User type (partial)
+  return (data || []).map((raw: any) => ({
+    id: raw.id,
+    name: raw.username || "Usuário", // Use username as name
+    username: raw.username,
+    codeHash: "", // Not needed here
+    img_url: raw.img_url,
+    birthdate: raw.birthdate
+    // role not strictly needed for this list
+  })) as User[];
 };
 
 export type ReportPeriod = 'day' | 'week' | 'month' | 'year';

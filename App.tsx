@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { JustificationModal } from './components/JustificationModal';
 import { JustificationApprovedModal } from './components/JustificationApprovedModal';
+import { BirthdayCelebrationModal } from './components/BirthdayCelebrationModal'; // Import
+import { BirthdayModal } from './components/BirthdayModal';
 
 import { MapPin, AlertCircle, Clock, RefreshCw, Navigation, X, Eye, Lock, ShieldAlert, LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from './components/Button';
@@ -17,7 +19,7 @@ import { InfoTab } from './components/InfoTab';
 import { useTokenSystem } from './hooks/useTokenSystem';
 import { supabase } from './services/supabase';
 import { Session } from '@supabase/supabase-js';
-import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime, getSystemConfig, getLastJustificativa } from './services/pontoService';
+import { calculateDistanceKm, getTodayRegistros, registerPonto, determineNextPontoType, getUserProfile, getReportData, ReportPeriod, getHistoryRecords, calculateWorkedTime, getSystemConfig, getLastJustificativa, updateUserBirthdate } from './services/pontoService';
 import { TARGET_LOCATION, MAX_RADIUS_KM, USER_MOCK } from './constants';
 import { TipoPonto, PontoRegistro, GeoLocation, User, Justificativa } from './types';
 import { logAction } from './services/logger';
@@ -80,6 +82,7 @@ const App: React.FC = () => {
   const [isPendingJustification, setIsPendingJustification] = useState(false); // New state for justification status
   const [approvalModalJustificativa, setApprovalModalJustificativa] = useState<Justificativa | null>(null);
 
+
   // Fetch Config on Load
   useEffect(() => {
     getSystemConfig('max_radius_km', MAX_RADIUS_KM).then((val) => {
@@ -134,7 +137,30 @@ const App: React.FC = () => {
   useEffect(() => {
     if (session?.user.id) {
       // Always fetch profile to get username for Dashboard/Header
-      getUserProfile(session.user.id).then(setUserProfile);
+      // Always fetch profile to get username for Dashboard/Header
+      getUserProfile(session.user.id).then(profile => {
+        setUserProfile(profile);
+        if (profile) {
+          if (!profile.birthdate) {
+            setShowBirthdayModal(true);
+          } else {
+            // Check for birthday celebration
+            const today = new Date();
+            // Fix timezone issue when comparing dates strings
+            const [y, m, d] = profile.birthdate.split('-').map(Number);
+
+            // Check if today matches MM-DD (Month is 0-indexed in JS)
+            if (today.getDate() === d && today.getMonth() === (m - 1)) {
+              const currentYear = today.getFullYear();
+              const key = `birthday_shown_${currentYear}_${profile.id}`;
+
+              if (!localStorage.getItem(key)) {
+                setShowCelebrationModal(true);
+              }
+            }
+          }
+        }
+      });
 
       if (currentView === 'profile' && reportPeriod !== 'today') {
         getReportData(session.user.id, reportPeriod as ReportPeriod).then(setReportData);
@@ -162,6 +188,29 @@ const App: React.FC = () => {
   const [showTokenViewer, setShowTokenViewer] = useState(false);
   const [showChallenge, setShowChallenge] = useState(false);
   const [showJustificationModal, setShowJustificationModal] = useState(false);
+  const [showBirthdayModal, setShowBirthdayModal] = useState(false);
+  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+
+  const handleBirthdaySubmit = async (date: string) => {
+    if (!session?.user.id) return;
+    try {
+      await updateUserBirthdate(session.user.id, date);
+      setShowBirthdayModal(false);
+      getUserProfile(session.user.id).then(setUserProfile);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar data.");
+    }
+  };
+
+  const handleCelebrationClose = () => {
+    if (userProfile?.id) {
+      const today = new Date();
+      const key = `birthday_shown_${today.getFullYear()}_${userProfile.id}`;
+      localStorage.setItem(key, 'true');
+    }
+    setShowCelebrationModal(false);
+  };
 
   // App Logic State
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -537,6 +586,18 @@ const App: React.FC = () => {
           onSubmit={handleJustificationSubmit}
         />
       )}
+
+      <BirthdayModal
+        isOpen={showBirthdayModal}
+        onSubmit={handleBirthdaySubmit}
+        onClose={() => setShowBirthdayModal(false)}
+      />
+
+      <BirthdayCelebrationModal
+        isOpen={showCelebrationModal}
+        onClose={handleCelebrationClose}
+        username={userProfile?.username || userProfile?.name || "Colaborador"}
+      />
 
       {/* Summary Modal */}
       {showSummaryModal && (
