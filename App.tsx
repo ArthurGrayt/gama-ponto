@@ -150,12 +150,24 @@ const App: React.FC = () => {
             const [y, m, d] = profile.birthdate.split('-').map(Number);
 
             // Check if today matches MM-DD (Month is 0-indexed in JS)
-            if (today.getDate() === d && today.getMonth() === (m - 1)) {
-              const currentYear = today.getFullYear();
-              const key = `birthday_shown_count_${currentYear}_${profile.id}`;
+            const isMatch = today.getDate() === d && today.getMonth() === (m - 1);
 
-              const count = parseInt(localStorage.getItem(key) || '0');
-              if (count < 3) {
+            console.log("[BirthdayDebug] Check:", {
+              today: today.toLocaleDateString(),
+              birthdate: profile.birthdate,
+              d, m,
+              isMatch
+            });
+
+            if (isMatch) {
+              const currentYear = today.getFullYear();
+              const key = `birthday_acknowledged_${currentYear}_${profile.id}`;
+
+              const alreadyAcknowledged = localStorage.getItem(key);
+              console.log("[BirthdayDebug] Key:", key, "Acknowledged:", alreadyAcknowledged);
+
+              if (!alreadyAcknowledged) {
+                console.log("[BirthdayDebug] Opening Modal");
                 setShowCelebrationModal(true);
               }
             }
@@ -207,9 +219,9 @@ const App: React.FC = () => {
   const handleCelebrationClose = () => {
     if (userProfile?.id) {
       const today = new Date();
-      const key = `birthday_shown_count_${today.getFullYear()}_${userProfile.id}`;
-      const count = parseInt(localStorage.getItem(key) || '0');
-      localStorage.setItem(key, (count + 1).toString());
+      const key = `birthday_acknowledged_${today.getFullYear()}_${userProfile.id}`;
+      localStorage.setItem(key, 'true');
+      console.log("[BirthdayDebug] Acknowledged! Key set:", key);
     }
     setShowCelebrationModal(false);
   };
