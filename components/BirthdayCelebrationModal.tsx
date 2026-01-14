@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PartyPopper, X } from 'lucide-react';
+import { PartyPopper } from 'lucide-react';
 import Confetti from 'react-confetti';
 
 interface BirthdayCelebrationModalProps {
@@ -22,7 +22,7 @@ export const BirthdayCelebrationModal: React.FC<BirthdayCelebrationModalProps> =
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-500">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-500">
             <Confetti
                 width={windowSize.width}
                 height={windowSize.height}
@@ -32,12 +32,6 @@ export const BirthdayCelebrationModal: React.FC<BirthdayCelebrationModalProps> =
             />
 
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col p-8 space-y-6 relative animate-in zoom-in-50 duration-500">
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors p-2"
-                >
-                    <X size={24} />
-                </button>
 
                 <div className="flex flex-col items-center text-center space-y-4">
                     <div className="w-24 h-24 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full flex items-center justify-center mb-2 shadow-inner">

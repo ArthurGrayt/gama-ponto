@@ -152,9 +152,10 @@ const App: React.FC = () => {
             // Check if today matches MM-DD (Month is 0-indexed in JS)
             if (today.getDate() === d && today.getMonth() === (m - 1)) {
               const currentYear = today.getFullYear();
-              const key = `birthday_shown_${currentYear}_${profile.id}`;
+              const key = `birthday_shown_count_${currentYear}_${profile.id}`;
 
-              if (!localStorage.getItem(key)) {
+              const count = parseInt(localStorage.getItem(key) || '0');
+              if (count < 3) {
                 setShowCelebrationModal(true);
               }
             }
@@ -206,8 +207,9 @@ const App: React.FC = () => {
   const handleCelebrationClose = () => {
     if (userProfile?.id) {
       const today = new Date();
-      const key = `birthday_shown_${today.getFullYear()}_${userProfile.id}`;
-      localStorage.setItem(key, 'true');
+      const key = `birthday_shown_count_${today.getFullYear()}_${userProfile.id}`;
+      const count = parseInt(localStorage.getItem(key) || '0');
+      localStorage.setItem(key, (count + 1).toString());
     }
     setShowCelebrationModal(false);
   };
