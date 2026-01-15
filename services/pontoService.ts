@@ -455,9 +455,9 @@ export const getAllUserBirthdays = async (): Promise<User[]> => {
   })) as User[];
 };
 
-export type ReportPeriod = 'day' | 'week' | 'month' | 'year';
+export type ReportPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 
-export const getReportData = async (userId: string, period: ReportPeriod): Promise<{ totalHours: number, balance: number }> => {
+export const getReportData = async (userId: string, period: ReportPeriod): Promise<{ totalHours: number, balance: number, daysWorked: number, businessDays: number, lastRecordDate: string | null }> => {
   const now = new Date();
   let startTime = new Date();
 
@@ -480,6 +480,60 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
       startTime.setMonth(0, 1);
       startTime.setHours(0, 0, 0, 0);
       break;
+    case 'all':
+      // Get first record date
+      const { data } = await supabase
+        .from('ponto_registros')
+        .select('datahora')
+        .eq('user_id', userId)
+        .order('datahora', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (data) {
+        startTime = new Date(data.datahora);
+        startTime.setHours(0, 0, 0, 0);
+      } else {
+        // Fallback if no records (start of today)
+        startTime.setHours(0, 0, 0, 0);
+      }
+      break;
+  }
+
+  // Determine End Date (Limit to Last 'Fim de Expediente' BEFORE Today)
+  // User request: "conte somente até o ponto 'fim de expediente' de ontem"
+  let endDate = new Date(now);
+  endDate.setDate(endDate.getDate() - 1); // Default to yesterday if no records found? Or just limit query.
+  endDate.setHours(23, 59, 59, 999);
+
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  let lastRecordDate: string | null = null;
+
+  // Only for 'all' or specifically requested flexible periods? Assuming applies to the general Balance view.
+  if (period === 'all') {
+    const { data: lastSaida } = await supabase
+      .from('ponto_registros')
+      .select('datahora')
+      .eq('user_id', userId)
+      .eq('tipo', 'Fim de Expediente')
+      .lt('datahora', todayStart.toISOString()) // Strictly before today
+      .order('datahora', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (lastSaida) {
+      lastRecordDate = lastSaida.datahora;
+      endDate = new Date(lastSaida.datahora);
+      // Ensure we include the full day of that last record
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      // If no "past" exit found, maybe just set to yesterday end?
+      // endDate ALREADY set to yesterday above.
+    }
+  } else {
+    endDate.setHours(23, 59, 59, 999);
   }
 
   const { data, error } = await supabase
@@ -487,25 +541,26 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
     .select('*')
     .eq('user_id', userId)
     .gte('datahora', startTime.toISOString())
-    .lte('datahora', now.toISOString()); // Up to now
+    .lte('datahora', endDate.toISOString());
 
   if (error || !data) {
-    return { totalHours: 0, balance: 0 };
+    return { totalHours: 0, balance: 0, daysWorked: 0, businessDays: 0, lastRecordDate: null };
   }
 
   // Fetch Holidays
   const holidaysData = await getHolidays();
-  const holidays = holidaysData.map(h => h.data); // Extract dates for easy checking
+  const holidays = holidaysData.map(h => {
+    // robustly handle YYYY-MM-DD or ISO string
+    if (typeof h.data === 'string') {
+      return h.data.split('T')[0];
+    }
+    return h.data; // fallback
+  });
 
   // Fetch user role
   const user = await getUserProfile(userId);
   const isIntern = user?.role === 2;
-  const WORKDAY_HOURS = isIntern ? 6.0 : 8.75; // Using 8.75 as standard (8h 45m? Or 8.0? User didn't specify exact, kept original logic but made it explicit constant)
-  // Actually original didn't have constant. Let's infer. user usually 8h.
-  // Wait, previous code used: `totalMs / ...` and `expected = workDaysCount * WORKDAY_HOURS`
-  // I replaced generic code with this block.
-  // Let's assume 8 hours for normal if not specified, or 8.8 (8h48m is common in BR).
-  // But for simple "normalization", let's use 8.
+  const WORKDAY_HOURS = isIntern ? 6.0 : 8.75; // Using 8.75 as standard
 
   // Group by Day
   const dailyRecords: Record<string, any[]> = {};
@@ -519,44 +574,52 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
   });
 
   let totalMs = 0;
-  let workDaysCount = 0;
+  let totalWeekdays = 0;
+  let daysWorkedCount = 0;
 
-  // Iterate days from start to now
+  // Iterate days from start to now (or endDate)
   const iterDate = new Date(startTime);
-  const endDate = new Date(now);
 
   while (iterDate <= endDate) {
     const dayKey = iterDate.toISOString().split('T')[0];
-    const isWeekend = iterDate.getDay() === 0 || iterDate.getDay() === 6;
-    const isHoliday = holidays.includes(dayKey);
+    const dayOfWeek = iterDate.getDay(); // 0=Sun, 6=Sat
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
+    // 1. Calculate Expected (Meta) - First Step: Count Weekdays
+    if (!isWeekend) {
+      totalWeekdays++;
+    }
+
+    // 2. Calculate Worked
     const dayRecs = dailyRecords[dayKey];
-
     if (dayRecs && dayRecs.length > 0) {
-      // Regular worked day
-      workDaysCount++; // Count as expected day
-      // (If holiday or weekend worked, it counts too. Overtime logic not requested yet).
-      totalMs += calculateWorkedTime(dayRecs as any);
-    } else {
-      // No records
-      if (isHoliday && !isWeekend) {
-        // Holiday logic: "normalizados automaticamente" -> counts as worked full hours
-        totalMs += (WORKDAY_HOURS * 60 * 60 * 1000);
-        workDaysCount++; // It was an expected day, and we fulfilled it virtually
-      } else if (!isWeekend) {
-        // Absent day (weekday, not holiday)
-        workDaysCount++; // Expected to work
+      const workedPx = calculateWorkedTime(dayRecs as any);
+      if (workedPx > 0) {
+        totalMs += workedPx;
+        daysWorkedCount++;
       }
     }
 
     iterDate.setDate(iterDate.getDate() + 1);
   }
 
-  const totalHours = totalMs / (1000 * 60 * 60);
-  const expected = workDaysCount * WORKDAY_HOURS;
-  const balance = totalHours - expected;
+  // User Algorithm: Business Days = Total Weekdays - Total Holidays
+  // Filter holidays that are within range [startTime, endDate]
+  const startStr = startTime.toISOString().split('T')[0];
+  const endStr = endDate.toISOString().split('T')[0];
 
-  return { totalHours, balance };
+  const holidaysInRange = holidays.filter(hDate => hDate >= startStr && hDate <= endStr);
+  const holidaysCount = holidaysInRange.length;
+
+  const businessDays = Math.max(0, totalWeekdays - holidaysCount);
+  const expectedMs = businessDays * (WORKDAY_HOURS * 60 * 60 * 1000);
+
+  const totalHours = totalMs / (1000 * 60 * 60);
+  const expectedHours = expectedMs / (1000 * 60 * 60);
+
+  const balance = totalHours - expectedHours;
+
+  return { totalHours, balance, daysWorked: daysWorkedCount, businessDays, lastRecordDate };
 };
 
 export const getHistoryRecords = async (userId: string, start: Date, end: Date, type?: TipoPonto): Promise<PontoRegistro[]> => {

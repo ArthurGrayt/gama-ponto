@@ -3,6 +3,7 @@ import { JustificationModal } from './components/JustificationModal';
 import { JustificationApprovedModal } from './components/JustificationApprovedModal';
 import { BirthdayCelebrationModal } from './components/BirthdayCelebrationModal'; // Import
 import { BirthdayModal } from './components/BirthdayModal';
+import { BankOfHoursModal } from './components/BankOfHoursModal';
 
 import { MapPin, AlertCircle, Clock, RefreshCw, Navigation, X, Eye, Lock, ShieldAlert, LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from './components/Button';
@@ -203,6 +204,7 @@ const App: React.FC = () => {
   const [showJustificationModal, setShowJustificationModal] = useState(false);
   const [showBirthdayModal, setShowBirthdayModal] = useState(false);
   const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+  const [showBankModal, setShowBankModal] = useState(false);
 
   const handleBirthdaySubmit = async (date: string) => {
     if (!session?.user.id) return;
@@ -607,6 +609,12 @@ const App: React.FC = () => {
         onClose={() => setShowBirthdayModal(false)}
       />
 
+      <BankOfHoursModal
+        isOpen={showBankModal}
+        onClose={() => setShowBankModal(false)}
+        userId={session?.user.id || ''}
+      />
+
       <BirthdayCelebrationModal
         isOpen={showCelebrationModal}
         onClose={handleCelebrationClose}
@@ -878,6 +886,17 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Bank of Hours Button */}
+            <button
+              onClick={() => setShowBankModal(true)}
+              className="w-full bg-white text-gray-900 font-bold py-4 rounded-2xl shadow-sm hover:bg-gray-50 flex items-center justify-center space-x-3 transition-all active:scale-[0.98]"
+            >
+              <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                <Clock size={20} />
+              </div>
+              <span>Visualizar Banco de Horas</span>
+            </button>
 
             {/* Logout */}
             <button
