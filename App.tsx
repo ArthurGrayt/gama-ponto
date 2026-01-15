@@ -267,8 +267,11 @@ const App: React.FC = () => {
             setIsPendingJustification(false);
             // Check if already acknowledged
             const lastAckId = localStorage.getItem('ack_just_id');
-            if (!lastAckId || parseInt(lastAckId) !== lastJust.id) {
+            const showCount = parseInt(localStorage.getItem('justification_approval_shown_count') || '0');
+
+            if ((!lastAckId || parseInt(lastAckId) !== lastJust.id) && showCount < 2) {
               setApprovalModalJustificativa(lastJust);
+              localStorage.setItem('justification_approval_shown_count', (showCount + 1).toString());
             }
           } else {
             setIsPendingJustification(false);
@@ -298,7 +301,12 @@ const App: React.FC = () => {
       if (lastJust) {
         if (lastJust.aprovada === true) {
           setIsPendingJustification(false);
-          setApprovalModalJustificativa(lastJust); // Show modal immediately
+
+          const showCount = parseInt(localStorage.getItem('justification_approval_shown_count') || '0');
+          if (showCount < 2) {
+            setApprovalModalJustificativa(lastJust); // Show modal immediately
+            localStorage.setItem('justification_approval_shown_count', (showCount + 1).toString());
+          }
 
           // Also refresh records to show the new generated points!
           const updated = await getTodayRegistros(session.user.id);
