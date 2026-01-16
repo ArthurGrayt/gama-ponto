@@ -500,41 +500,39 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
       break;
   }
 
-  // Determine End Date (Limit to Last 'Fim de Expediente' BEFORE Today)
-  // User request: "conte somente até o ponto 'fim de expediente' de ontem"
-  let endDate = new Date(now);
-  endDate.setDate(endDate.getDate() - 1); // Default to yesterday if no records found? Or just limit query.
-  endDate.setHours(23, 59, 59, 999);
-
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
+  // Determine End Date (Always Limit to Last 'Fim de Expediente' found)
+  // User Instruction: "deve contar até o último ponto de 'Fim de Expediente' batido pelo usuario"
 
   let lastRecordDate: string | null = null;
+  let endDate = new Date(now);
+  endDate.setDate(endDate.getDate() - 1); // Default fallback: Yesterday
+  endDate.setHours(23, 59, 59, 999);
 
-  // Only for 'all' or specifically requested flexible periods? Assuming applies to the general Balance view.
-  if (period === 'all') {
-    const { data: lastSaida } = await supabase
-      .from('ponto_registros')
-      .select('datahora')
-      .eq('user_id', userId)
-      .eq('tipo', 'Fim de Expediente')
-      .lt('datahora', todayStart.toISOString()) // Strictly before today
-      .order('datahora', { ascending: false })
-      .limit(1)
-      .single();
+  // 1. Fetch the absolute last 'Fim de Expediente'
+  const { data: lastSaida } = await supabase
+    .from('ponto_registros')
+    .select('datahora')
+    .eq('user_id', userId)
+    .eq('tipo', 'Fim de expediente')
+    .order('datahora', { ascending: false })
+    .limit(1)
+    .single();
 
-    if (lastSaida) {
-      lastRecordDate = lastSaida.datahora;
-      endDate = new Date(lastSaida.datahora);
-      // Ensure we include the full day of that last record
-      endDate.setHours(23, 59, 59, 999);
-    } else {
-      // If no "past" exit found, maybe just set to yesterday end?
-      // endDate ALREADY set to yesterday above.
-    }
-  } else {
-    endDate.setHours(23, 59, 59, 999);
+  if (lastSaida) {
+    const lastWorkDate = new Date(lastSaida.datahora);
+    lastWorkDate.setHours(23, 59, 59, 999);
+
+    // If the last worked day is BEFORE the default 'yesterday', we use it to stop the counter early.
+    // If it's today or generally available, we use it. 
+    // Effectively, we shouldn't count days AFTER the user last worked.
+    endDate = lastWorkDate;
+    lastRecordDate = lastSaida.datahora;
   }
+
+  // If period logic wants to restrict 'endDate' further (like 'day'), we should respect the Min(PeriodEnd, LastWorkRec).
+  // But for 'all' or 'year'/'month' where we look at "accumulated balance", stopping at the last real work day is usually desired.
+  // The start time is set by period.
+
 
   const { data, error } = await supabase
     .from('ponto_registros')
@@ -574,7 +572,7 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
   });
 
   let totalMs = 0;
-  let totalWeekdays = 0;
+  let businessDays = 0; // Renaming/Repurposing logic: Count actual business days
   let daysWorkedCount = 0;
 
   // Iterate days from start to now (or endDate)
@@ -587,7 +585,7 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
 
     // 1. Calculate Expected (Meta) - First Step: Count Weekdays
     if (!isWeekend) {
-      totalWeekdays++;
+      businessDays++; // Temporarily count all weekdays. We will subtract holidays after.
     }
 
     // 2. Calculate Worked
@@ -603,15 +601,17 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
     iterDate.setDate(iterDate.getDate() + 1);
   }
 
-  // User Algorithm: Business Days = Total Weekdays - Total Holidays
-  // Filter holidays that are within range [startTime, endDate]
+  // User Algorithm: Business Days = Total Weekdays - Total Holidays (Explicit Request)
+  // "Pegue os 34 dias uteis e retire os 7 feriados"
   const startStr = startTime.toISOString().split('T')[0];
   const endStr = endDate.toISOString().split('T')[0];
 
   const holidaysInRange = holidays.filter(hDate => hDate >= startStr && hDate <= endStr);
   const holidaysCount = holidaysInRange.length;
 
-  const businessDays = Math.max(0, totalWeekdays - holidaysCount);
+  // Subtract ALL holidays in range from the weekday count
+  businessDays = Math.max(0, businessDays - holidaysCount);
+
   const expectedMs = businessDays * (WORKDAY_HOURS * 60 * 60 * 1000);
 
   const totalHours = totalMs / (1000 * 60 * 60);
