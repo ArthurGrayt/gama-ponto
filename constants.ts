@@ -4,7 +4,7 @@ export const TARGET_LOCATION = {
   longitude: -43.8033635
 };
 
-export const MAX_RADIUS_KM = 0.4;
+export const MAX_RADIUS_KM = 0.7;
 export const MAX_AUTH_ATTEMPTS = 3;
 export const LOCKOUT_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
