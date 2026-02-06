@@ -105,12 +105,14 @@ const App: React.FC = () => {
       let end = new Date(date);
 
       if (historyType === 'today') {
-        const now = new Date();
-        start = new Date(now);
-        start.setHours(0, 0, 0, 0);
-        end = new Date(now);
-        end.setHours(23, 59, 59, 999);
-      } else if (historyType === 'day') {
+        const startToday = new Date();
+        startToday.setHours(0, 0, 0, 0);
+        const endToday = new Date();
+        endToday.setHours(23, 59, 59, 999);
+        start = startToday;
+        end = endToday;
+      }
+      else if (historyType === 'day') {
         start.setHours(0, 0, 0, 0);
         end.setHours(23, 59, 59, 999);
       } else if (historyType === 'week') {

@@ -671,11 +671,11 @@ export const getHistoryRecords = async (userId: string, start: Date, end: Date, 
         const hasRecords = records.some(r => r.datahora.startsWith(dayKey));
 
         if (!hasRecords) {
-          // Insert virtual record
+          // Insert virtual record using the start of the UTC day to avoid business hour assumptions
           records.push({
             id: -1 * iter.getTime(), // Fake ID
             user_id: userId,
-            datahora: `${dayKey}T12:00:00.000Z`, // Noon
+            datahora: new Date(dayKey).toISOString(), // Start of UTC day
             tipo: TipoPonto.FERIADO,
             justificativa_local: holidayObj.titulo || "Feriado", // Use Title
             justificativa_aprovada: true, // Implied approved
