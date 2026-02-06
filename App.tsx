@@ -453,7 +453,7 @@ const App: React.FC = () => {
     setShowChallenge(true);
   };
 
-  const handleJustificationSubmit = async (text: string, file: File | null, type: 'atraso' | 'falta') => {
+  const handleJustificationSubmit = async (text: string, file: File | null, type?: 'falta') => {
     setShowJustificationModal(false);
     if (!location) {
       setError("Localização não disponível.");
@@ -670,7 +670,7 @@ const App: React.FC = () => {
             <div className="text-center space-y-1">
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Olá, {userProfile?.username || userProfile?.name || session?.user.email?.split('@')[0]}</h1>
               <p className="text-gray-500 font-medium text-base">
-                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
             </div>
 

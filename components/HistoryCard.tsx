@@ -3,7 +3,10 @@ import { PontoRegistro, TipoPonto } from '../types';
 import { Clock, AlertTriangle, MapPinOff } from 'lucide-react';
 
 const formatTime = (isoString: string) => {
-  return new Date(isoString).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (!isoString) return '';
+  // Extract HH:mm directly from string (format could be "YYYY-MM-DD HH:mm:ss" or "YYYY-MM-DDTHH:mm:ss.sssZ")
+  const part = isoString.includes('T') ? isoString.split('T')[1] : isoString.split(' ')[1];
+  return part ? part.substring(0, 5) : '';
 };
 
 const getLabel = (tipo: TipoPonto) => {

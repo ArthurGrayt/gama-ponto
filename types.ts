@@ -14,7 +14,7 @@ export interface PontoRegistro {
   tipo: TipoPonto;
   justificativa_local: string | null;
   justificativa_aprovada?: boolean;
-  tipo_just?: 'atraso' | 'falta' | null;
+  tipo_just?: 'falta' | null;
   ordem: number;
   horas_acumuladas: number | null;
   tempo_almoco: number | null;

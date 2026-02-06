@@ -3,14 +3,14 @@ import { Camera, X, Upload, Loader2, Check } from 'lucide-react';
 
 interface JustificationModalProps {
     onClose: () => void;
-    onSubmit: (text: string, file: File | null, type: 'atraso' | 'falta') => Promise<void>;
+    onSubmit: (text: string, file: File | null, type?: 'falta') => Promise<void>;
     isOpen: boolean;
 }
 
 export const JustificationModal: React.FC<JustificationModalProps> = ({ onClose, onSubmit, isOpen }) => {
     const [text, setText] = useState('');
     const [file, setFile] = useState<File | null>(null);
-    const [justType, setJustType] = useState<'atraso' | 'falta'>('atraso');
+    const [isAbsence, setIsAbsence] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +34,7 @@ export const JustificationModal: React.FC<JustificationModalProps> = ({ onClose,
 
         setIsSubmitting(true);
         try {
-            await onSubmit(text, file, justType);
+            await onSubmit(text, file, isAbsence ? 'falta' : undefined);
             onClose();
         } catch (error) {
             console.error("Error submitting justification:", error);
@@ -68,35 +68,17 @@ export const JustificationModal: React.FC<JustificationModalProps> = ({ onClose,
                         </p>
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-gray-700">Tipo de Justificativa</label>
-                        <div className="flex space-x-3">
-                            <button
-                                onClick={() => setJustType('atraso')}
-                                className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all font-medium text-sm flex items-center justify-center space-x-2 ${justType === 'atraso'
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                                    }`}
-                            >
-                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${justType === 'atraso' ? 'border-blue-600' : 'border-gray-300'}`}>
-                                    {justType === 'atraso' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
-                                </div>
-                                <span>Atraso</span>
-                            </button>
-
-                            <button
-                                onClick={() => setJustType('falta')}
-                                className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all font-medium text-sm flex items-center justify-center space-x-2 ${justType === 'falta'
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                                    }`}
-                            >
-                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${justType === 'falta' ? 'border-blue-600' : 'border-gray-300'}`}>
-                                    {justType === 'falta' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
-                                </div>
-                                <span>Falta</span>
-                            </button>
-                        </div>
+                    <div className="flex items-center space-x-2 py-2">
+                        <input
+                            type="checkbox"
+                            id="isAbsence"
+                            checked={isAbsence}
+                            onChange={(e) => setIsAbsence(e.target.checked)}
+                            className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor="isAbsence" className="text-sm font-semibold text-gray-700">
+                            Marcar como Falta (Não trabalhei hoje)
+                        </label>
                     </div>
 
                     <div className="space-y-2">
@@ -170,7 +152,7 @@ export const JustificationModal: React.FC<JustificationModalProps> = ({ onClose,
                         ) : (
                             <>
                                 <Check size={20} />
-                                <span>Registrar {justType ? `(${justType === 'atraso' ? 'Atraso' : 'Falta'})` : 'e Justificar'}</span>
+                                <span>Registrar {isAbsence ? '(Falta)' : '(Justificado)'}</span>
                             </>
                         )}
                     </button>

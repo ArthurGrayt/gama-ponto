@@ -129,8 +129,9 @@ export const getTodayRegistros = async (userId: string): Promise<PontoRegistro[]
   // Map DB fields to Frontend types
   return (data || []).map((r: any) => ({
     ...r,
+    datahora: r.datahora ? r.datahora.replace(' ', 'T') : r.datahora,
     tipo: mapDbToType(r.tipo),
-    fora_do_raio: !!r.justificativa_local // Derive from justification since column doesn't exist
+    fora_do_raio: !!r.justificativa_local
   })) as PontoRegistro[];
 };
 
@@ -203,7 +204,7 @@ export const registerPonto = async (
   location: GeoLocation,
   justificativaText?: string,
   justificativaImage?: File | null,
-  tipoJust?: 'atraso' | 'falta'
+  tipoJust?: 'falta'
 ): Promise<PontoRegistro> => {
 
   // 1. Backend Distance Validation
@@ -295,7 +296,7 @@ export const registerPonto = async (
   };
 
   // IF JUSTIFICATION: Only save to justificativa table, DO NOT insert into ponto_registros
-  if (tipoJust) {
+  if (tipoJust === 'falta') {
     console.log("Saving justification:", { userId, tipoJust, texto: justificativaText, imageUrl });
 
     if (imageUrl) {
@@ -349,7 +350,7 @@ export const registerPonto = async (
 export const saveJustificativa = async (userId: string, tipo: string, texto: string, imgUrl?: string | null) => {
   const payload = {
     usuario: userId,
-    tipo, // 'atraso' or 'falta'
+    tipo, // 'falta'
     texto,
     img: imgUrl || null,
     aprovada: null // Default pending
@@ -668,8 +669,9 @@ export const getHistoryRecords = async (userId: string, start: Date, end: Date, 
 
   let records = (data || []).map((r: any) => ({
     ...r,
+    datahora: r.datahora ? r.datahora.replace(' ', 'T') : r.datahora,
     tipo: mapDbToType(r.tipo),
-    fora_do_raio: !!r.justificativa_local // Derive from justification
+    fora_do_raio: !!r.justificativa_local
   })) as PontoRegistro[];
 
   // Inject Virtual Holidays if 'FERIADO' or 'ALL' requested
@@ -695,14 +697,16 @@ export const getHistoryRecords = async (userId: string, start: Date, end: Date, 
         const hasRecords = records.some(r => r.datahora.startsWith(dayKey));
 
         if (!hasRecords) {
-          // Insert virtual record using the start of the UTC day to avoid business hour assumptions
+          // Use YYYY-MM-DDT12:00:00Z for holidays to be safe in most timezones 
+          // (avoid flipping days at midnight UTC)
+          const holidayDate = new Date(`${dayKey}T12:00:00Z`);
           records.push({
-            id: -1 * iter.getTime(), // Fake ID
+            id: -1 * holidayDate.getTime(), // Fake ID
             user_id: userId,
-            datahora: new Date(dayKey).toISOString(), // Start of UTC day
+            datahora: holidayDate.toISOString(),
             tipo: TipoPonto.FERIADO,
-            justificativa_local: holidayObj.titulo || "Feriado", // Use Title
-            justificativa_aprovada: true, // Implied approved
+            justificativa_local: holidayObj.titulo || "Feriado",
+            justificativa_aprovada: true,
             ordem: 0,
             horas_acumuladas: null,
             tempo_almoco: null,
