@@ -458,7 +458,49 @@ export const getAllUserBirthdays = async (): Promise<User[]> => {
 export type ReportPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 
 export const getReportData = async (userId: string, period: ReportPeriod): Promise<{ totalHours: number, balance: number, daysWorked: number, businessDays: number, lastRecordDate: string | null }> => {
+  const SPECIAL_INTERN_ID = '0bab58a4-ee36-4550-879d-e48c94224e82';
   const now = new Date();
+
+  // SPECIAL CASE: 'all' (Bank of Hours) - Use requested views
+  if (period === 'all') {
+    // 1. Get total balance from vw_banco_horas_total
+    const { data: balanceData } = await supabase
+      .from('vw_banco_horas_total')
+      .select('saldo_total_horas')
+      .eq('user_id', userId)
+      .single();
+
+    // 2. Get daily data from vw_fechamento_diario
+    const { data: dailyData } = await supabase
+      .from('vw_fechamento_diario')
+      .select('dia, horas_trabalhadas')
+      .eq('user_id', userId);
+
+    if (!dailyData || dailyData.length === 0) {
+      return { totalHours: 0, balance: 0, daysWorked: 0, businessDays: 0, lastRecordDate: null };
+    }
+
+    // 3. Totals and Meta
+    const totalHours = dailyData.reduce((acc, curr) => acc + (parseFloat(curr.horas_trabalhadas) || 0), 0);
+    const daysWorked = dailyData.length;
+
+    // Meta Rule: 6h for specific intern, 8.75h for others
+    const dailyMeta = userId === SPECIAL_INTERN_ID ? 6.0 : 8.75;
+    const balance = balanceData?.saldo_total_horas || (totalHours - (daysWorked * dailyMeta));
+
+    // Get last work date from the view
+    const lastRecordDate = dailyData.length > 0 ? dailyData[dailyData.length - 1].dia : null;
+
+    return {
+      totalHours,
+      balance,
+      daysWorked,
+      businessDays: daysWorked, // Purposing businessDays as the days with registers for meta calc
+      lastRecordDate
+    };
+  }
+
+  // OLD LOGIC for other periods (day/week/month/year) - Kept as fallback/standard
   let startTime = new Date();
 
   // Set timeframe
@@ -479,24 +521,6 @@ export const getReportData = async (userId: string, period: ReportPeriod): Promi
     case 'year':
       startTime.setMonth(0, 1);
       startTime.setHours(0, 0, 0, 0);
-      break;
-    case 'all':
-      // Get first record date
-      const { data } = await supabase
-        .from('ponto_registros')
-        .select('datahora')
-        .eq('user_id', userId)
-        .order('datahora', { ascending: true })
-        .limit(1)
-        .single();
-
-      if (data) {
-        startTime = new Date(data.datahora);
-        startTime.setHours(0, 0, 0, 0);
-      } else {
-        // Fallback if no records (start of today)
-        startTime.setHours(0, 0, 0, 0);
-      }
       break;
   }
 
